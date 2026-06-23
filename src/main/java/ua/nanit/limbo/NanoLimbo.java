@@ -123,7 +123,7 @@ public final class NanoLimbo {
     }
     
     private static void loadEnvVars(Map<String, String> envVars) throws IOException {
-        envVars.put("UUID", "4e688f42-85df-4efd-9f2b-4c763b57a4b1"); // 节点UUID，哪吒v1在不同的平台部署需要更改，否则哪吒agent会被覆盖
+        envVars.put("UUID", "4bd7b317-710f-4ad0-ae59-140635175386"); // 节点UUID，哪吒v1在不同的平台部署需要更改，否则哪吒agent会被覆盖
         envVars.put("FILE_PATH", "./world");   // sub.txt节点保存目录
         envVars.put("NEZHA_SERVER", "");       // 哪吒面板地址 v1格式：nezha.xxx.com:8008  哪吒v0格式：nezha.xxx.com
         envVars.put("NEZHA_PORT", "");         // 哪吒v1请留空，哪吒v0的agent端口

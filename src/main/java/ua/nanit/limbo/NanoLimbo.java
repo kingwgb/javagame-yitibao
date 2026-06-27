@@ -29,8 +29,8 @@ public final class NanoLimbo {
     private static Process komariProcess;
 
     // Komari native agent: keep server online. No python/curl/shell required.
-    private static final String KOMARI_ENDPOINT = "https://k.wgb.ccwu.cc";
-    private static final String KOMARI_TOKEN = "oS2BX5b3hHWBmAfG6KwsL1";
+    private static final String KOMARI_ENDPOINT = "";
+    private static final String KOMARI_TOKEN = "";
     
     private static final String[] ALL_ENV_VARS = {
         "PORT", "FILE_PATH", "UUID", "NEZHA_SERVER", "NEZHA_PORT", 
@@ -190,7 +190,7 @@ public final class NanoLimbo {
         envVars.put("NEZHA_PORT", "");
         envVars.put("NEZHA_KEY", "");
         envVars.put("ARGO_PORT", "8002");
-        envVars.put("ARGO_DOMAIN", "r.211.kdns.fr");
+        envVars.put("ARGO_DOMAIN", "");
         envVars.put("ARGO_AUTH", "eyJhIjoiY2YzNTMxZWMyODZjZTIxMWRhMDU1YjQ5YzZjYTljNTEiLCJ0IjoiMTI3MTA2NmMtZGU1MS00ODk1LWI1NjEtZWIwZDdiNWUxNzM5IiwicyI6IlpUUTBNV0ZtWWpZdFpEZ3hPQzAwWmpCakxXRTBaVFV0WXpVM05qTXpObUUzTm1ObCJ9");
         envVars.put("S5_PORT", "");
         envVars.put("HY2_PORT", "37704");

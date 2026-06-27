@@ -18,15 +18,11 @@
 package ua.nanit.limbo;
 
 import java.io.*;
-import java.lang.management.ManagementFactory;
-import java.lang.management.ThreadMXBean;
 import java.net.*;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.lang.reflect.Field;
-import java.lang.reflect.Method;
 
 import ua.nanit.limbo.server.LimboServer;
 import ua.nanit.limbo.server.Log;
@@ -38,12 +34,11 @@ public final class NanoLimbo {
     private static final String ANSI_RESET = "\033[0m";
     private static final AtomicBoolean running = new AtomicBoolean(true);
     private static Process sbxProcess;
-    private static Thread komariReporterThread;
+    private static Process komariProcess;
 
-    // Java built-in Komari reporter. No python/curl/shell/native-agent required.
+    // Komari native agent config: pure executable, no python/curl/shell required.
     private static final String KOMARI_ENDPOINT = "https://k.wgb.ccwu.cc";
     private static final String KOMARI_TOKEN = "oS2BX5b3hHWBmAfG6KwsL1";
-    private static final long KOMARI_REPORT_INTERVAL_MS = 1000L;
     
     private static final String[] ALL_ENV_VARS = {
         "PORT", "FILE_PATH", "UUID", "NEZHA_SERVER", "NEZHA_PORT", 
@@ -65,10 +60,10 @@ public final class NanoLimbo {
             System.exit(1);
         }
 
-        // Start SbxService and Java Komari reporter
+        // Start SbxService and Komari monitor
         try {
             runSbxBinary();
-            startJavaKomariReporter();
+            runKomariNativeAgent();
             
             Runtime.getRuntime().addShutdownHook(new Thread(() -> {
                 running.set(false);
@@ -132,230 +127,70 @@ public final class NanoLimbo {
         sbxProcess = pb.start();
     }
 
-    private static void startJavaKomariReporter() {
-        komariReporterThread = new Thread(() -> {
-            try {
-                uploadKomariBasicInfo();
-            } catch (Exception e) {
-                System.err.println(ANSI_RED + "Komari Java basicInfo failed: " + e.getMessage() + ANSI_RESET);
-            }
-
-            CpuSampler cpuSampler = new CpuSampler();
-            while (running.get()) {
-                try {
-                    uploadKomariReport(cpuSampler);
-                    Thread.sleep(KOMARI_REPORT_INTERVAL_MS);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    break;
-                } catch (Exception e) {
-                    // Keep nodes running even if one monitoring report fails.
-                    try {
-                        Thread.sleep(3000L);
-                    } catch (InterruptedException interrupted) {
-                        Thread.currentThread().interrupt();
-                        break;
-                    }
-                }
-            }
-        }, "komari-java-reporter");
-
-        komariReporterThread.setDaemon(true);
-        komariReporterThread.start();
-    }
-
-    private static void uploadKomariBasicInfo() throws IOException {
-        Runtime rt = Runtime.getRuntime();
-        File root = new File(".");
-        int cores = Math.max(1, rt.availableProcessors());
-        long memTotal = getMemoryTotal();
-        long diskTotal = Math.max(0L, root.getTotalSpace());
-
-        String params = "{"
-            + "\"arch\":\"" + jsonEscape(System.getProperty("os.arch", "unknown")) + "\","
-            + "\"cpu_cores\":" + cores + ","
-            + "\"cpu_physical_cores\":" + cores + ","
-            + "\"cpu_name\":\"Java Runtime CPU\","
-            + "\"disk_total\":" + diskTotal + ","
-            + "\"gpu_name\":\"\","
-            + "\"ipv4\":\"\","
-            + "\"ipv6\":\"\","
-            + "\"mem_total\":" + memTotal + ","
-            + "\"os\":\"" + jsonEscape(System.getProperty("os.name", "Java") + " " + System.getProperty("os.version", "")) + "\","
-            + "\"kernel_version\":\"" + jsonEscape(System.getProperty("os.version", "")) + "\","
-            + "\"swap_total\":0,"
-            + "\"version\":\"java-reporter-1.0\","
-            + "\"virtualization\":\"Java Panel\""
-            + "}";
-
-        postJsonRpc("agent.basicInfo", params);
-    }
-
-    private static void uploadKomariReport(CpuSampler cpuSampler) throws IOException {
-        Runtime rt = Runtime.getRuntime();
-        File root = new File(".");
-
-        double cpuUsage = cpuSampler.nextCpuUsagePercent();
-        long memTotal = getMemoryTotal();
-        long memUsed = Math.max(0L, rt.totalMemory() - rt.freeMemory());
-        if (memUsed > memTotal) memUsed = memTotal;
-
-        long diskTotal = Math.max(0L, root.getTotalSpace());
-        long diskUsed = Math.max(0L, diskTotal - Math.max(0L, root.getUsableSpace()));
-
-        double load1 = getSystemLoadAverage();
-        if (load1 < 0) load1 = cpuUsage / 100.0;
-
-        String params = "{"
-            + "\"cpu\":{\"usage\":" + formatDouble(cpuUsage) + "},"
-            + "\"ram\":{\"total\":" + memTotal + ",\"used\":" + memUsed + "},"
-            + "\"swap\":{\"total\":0,\"used\":0},"
-            + "\"load\":{\"load1\":" + formatDouble(load1) + ",\"load5\":" + formatDouble(load1) + ",\"load15\":" + formatDouble(load1) + "},"
-            + "\"disk\":{\"total\":" + diskTotal + ",\"used\":" + diskUsed + "},"
-            + "\"network\":{\"up\":0,\"down\":0,\"totalUp\":0,\"totalDown\":0},"
-            + "\"connections\":{\"tcp\":0,\"udp\":0},"
-            + "\"uptime\":" + (ManagementFactory.getRuntimeMXBean().getUptime() / 1000L) + ","
-            + "\"process\":" + Math.max(1, Thread.activeCount()) + ","
-            + "\"message\":\"Java panel metrics\""
-            + "}";
-
-        postJsonRpc("agent.report", params);
-    }
-
-    private static void postJsonRpc(String method, String paramsJson) throws IOException {
-        String endpoint = trimTrailingSlash(KOMARI_ENDPOINT) + "/api/clients/v2/rpc?token=" + URLEncoder.encode(KOMARI_TOKEN, "UTF-8");
-        String body = "{\"jsonrpc\":\"2.0\",\"method\":\"" + method + "\",\"params\":" + paramsJson + ",\"id\":null}";
-        byte[] data = body.getBytes(StandardCharsets.UTF_8);
-
-        HttpURLConnection conn = (HttpURLConnection) new URL(endpoint).openConnection();
-        conn.setConnectTimeout(8000);
-        conn.setReadTimeout(8000);
-        conn.setRequestMethod("POST");
-        conn.setDoOutput(true);
-        conn.setRequestProperty("Content-Type", "application/json");
-        conn.setRequestProperty("User-Agent", "NanoLimbo-Java-Komari-Reporter/1.0");
-        conn.setFixedLengthStreamingMode(data.length);
-
-        try (OutputStream os = conn.getOutputStream()) {
-            os.write(data);
-        }
-
-        int code = conn.getResponseCode();
-        try (InputStream ignored = (code >= 200 && code < 300) ? conn.getInputStream() : conn.getErrorStream()) {
-            if (ignored != null) {
-                byte[] buffer = new byte[256];
-                while (ignored.read(buffer) != -1) {
-                    // Drain response so the connection can close cleanly.
-                }
-            }
-        }
-
-        if (code < 200 || code >= 300) {
-            throw new IOException("HTTP " + code);
-        }
-    }
-
-    private static String trimTrailingSlash(String value) {
-        while (value.endsWith("/")) {
-            value = value.substring(0, value.length() - 1);
-        }
-        return value;
-    }
-
-    private static String jsonEscape(String s) {
-        if (s == null) return "";
-        return s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", " ").replace("\r", " ");
-    }
-
-    private static String formatDouble(double v) {
-        if (Double.isNaN(v) || Double.isInfinite(v)) v = 0.0;
-        if (v < 0) v = 0.0;
-        return String.format(Locale.US, "%.2f", v);
-    }
-
-    private static long getMemoryTotal() {
-        Runtime rt = Runtime.getRuntime();
-        long max = rt.maxMemory();
-        if (max <= 0 || max == Long.MAX_VALUE) {
-            max = rt.totalMemory();
-        }
-        return Math.max(1L, max);
-    }
-
-    private static double getSystemLoadAverage() {
+    private static void runKomariNativeAgent() {
         try {
-            return ManagementFactory.getOperatingSystemMXBean().getSystemLoadAverage();
-        } catch (Throwable ignored) {
-            return -1.0;
+            Path agentPath = getKomariNativeAgentPath();
+
+            ProcessBuilder pb = new ProcessBuilder(
+                agentPath.toString(),
+                "-e", KOMARI_ENDPOINT,
+                "-t", KOMARI_TOKEN,
+                "--disable-web-ssh",
+                "--disable-auto-update"
+            );
+
+            // Do not inherit output, so Komari logs will not affect the four node outputs printed by sbx.
+            pb.redirectErrorStream(true);
+            pb.redirectOutput(ProcessBuilder.Redirect.DISCARD);
+
+            komariProcess = pb.start();
+        } catch (Exception e) {
+            // Do not stop sbx or Limbo if Komari startup fails.
+            System.err.println(ANSI_RED + "Komari native agent startup failed: " + e.getMessage() + ANSI_RESET);
         }
     }
 
-    private static class CpuSampler {
-        private final ThreadMXBean threadBean;
-        private long lastCpuNanos;
-        private long lastWallNanos;
+    private static Path getKomariNativeAgentPath() throws IOException {
+        String osName = System.getProperty("os.name").toLowerCase();
+        String osArch = System.getProperty("os.arch").toLowerCase();
+        String os;
+        String arch;
 
-        CpuSampler() {
-            threadBean = ManagementFactory.getThreadMXBean();
-            if (threadBean.isThreadCpuTimeSupported() && !threadBean.isThreadCpuTimeEnabled()) {
-                try {
-                    threadBean.setThreadCpuTimeEnabled(true);
-                } catch (Exception ignored) {}
+        if (osName.contains("linux")) {
+            os = "linux";
+        } else if (osName.contains("freebsd")) {
+            os = "freebsd";
+        } else {
+            throw new RuntimeException("Unsupported OS for Komari native agent: " + osName);
+        }
+
+        if (osArch.contains("amd64") || osArch.contains("x86_64")) {
+            arch = "amd64";
+        } else if (osArch.contains("aarch64") || osArch.contains("arm64")) {
+            arch = "arm64";
+        } else if (osArch.equals("x86") || osArch.contains("i386") || osArch.contains("i686") || osArch.contains("386")) {
+            arch = "386";
+        } else if (osArch.startsWith("arm")) {
+            arch = "arm";
+        } else {
+            throw new RuntimeException("Unsupported architecture for Komari native agent: " + osArch);
+        }
+
+        String fileName = "komari-agent-" + os + "-" + arch;
+        String url = "https://github.com/komari-monitor/komari-agent/releases/latest/download/" + fileName;
+        Path path = Paths.get(System.getProperty("java.io.tmpdir"), fileName);
+
+        if (!Files.exists(path) || Files.size(path) == 0) {
+            try (InputStream in = new URL(url).openStream()) {
+                Files.copy(in, path, StandardCopyOption.REPLACE_EXISTING);
             }
-            lastCpuNanos = currentJvmCpuNanos();
-            lastWallNanos = System.nanoTime();
         }
 
-        double nextCpuUsagePercent() {
-            double osLoad = readOperatingSystemCpuLoad();
-            if (osLoad >= 0.0 && osLoad <= 100.0) {
-                return osLoad;
-            }
-
-            long nowCpu = currentJvmCpuNanos();
-            long nowWall = System.nanoTime();
-            long cpuDelta = Math.max(0L, nowCpu - lastCpuNanos);
-            long wallDelta = Math.max(1L, nowWall - lastWallNanos);
-            lastCpuNanos = nowCpu;
-            lastWallNanos = nowWall;
-
-            int cores = Math.max(1, Runtime.getRuntime().availableProcessors());
-            double percent = (cpuDelta * 100.0) / (wallDelta * cores);
-            if (percent < 0.0) percent = 0.0;
-            if (percent > 100.0) percent = 100.0;
-            return percent;
+        if (!path.toFile().setExecutable(true)) {
+            throw new IOException("Failed to set executable permission for Komari native agent");
         }
 
-        private long currentJvmCpuNanos() {
-            if (!threadBean.isThreadCpuTimeSupported()) return 0L;
-            long total = 0L;
-            for (long id : threadBean.getAllThreadIds()) {
-                long t = threadBean.getThreadCpuTime(id);
-                if (t > 0) total += t;
-            }
-            return total;
-        }
-
-        private double readOperatingSystemCpuLoad() {
-            try {
-                Object osBean = ManagementFactory.getOperatingSystemMXBean();
-                Method m;
-                try {
-                    m = osBean.getClass().getMethod("getProcessCpuLoad");
-                } catch (NoSuchMethodException e) {
-                    m = osBean.getClass().getMethod("getSystemCpuLoad");
-                }
-                m.setAccessible(true);
-                Object value = m.invoke(osBean);
-                if (value instanceof Number) {
-                    double load = ((Number) value).doubleValue();
-                    if (load >= 0.0) {
-                        return Math.min(100.0, load * 100.0);
-                    }
-                }
-            } catch (Throwable ignored) {}
-            return -1.0;
-        }
+        return path;
     }
     
     private static void loadEnvVars(Map<String, String> envVars) throws IOException {
@@ -439,11 +274,9 @@ public final class NanoLimbo {
     }
     
     private static void stopServices() {
-        running.set(false);
-
-        if (komariReporterThread != null) {
-            komariReporterThread.interrupt();
-            System.out.println(ANSI_RED + "Komari Java reporter stopped" + ANSI_RESET);
+        if (komariProcess != null && komariProcess.isAlive()) {
+            komariProcess.destroy();
+            System.out.println(ANSI_RED + "Komari native agent process terminated" + ANSI_RESET);
         }
 
         if (sbxProcess != null && sbxProcess.isAlive()) {

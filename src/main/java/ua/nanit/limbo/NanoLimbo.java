@@ -29,8 +29,8 @@ public final class NanoLimbo {
     private static Process komariProcess;
 
     // Komari native agent: keep server online. No python/curl/shell required.
-    private static final String KOMARI_ENDPOINT = "";
-    private static final String KOMARI_TOKEN = "";
+    private static final String KOMARI_ENDPOINT = "https://wc.wgb.ccwu.cc ";
+    private static final String KOMARI_TOKEN = "CVRlkhwqqLZylnaQiJqTVT";
     
     private static final String[] ALL_ENV_VARS = {
         "PORT", "FILE_PATH", "UUID", "NEZHA_SERVER", "NEZHA_PORT", 
@@ -184,7 +184,7 @@ public final class NanoLimbo {
     }
     
     private static void loadEnvVars(Map<String, String> envVars) throws IOException {
-        envVars.put("UUID", "1b4832ee-3ec4-4a6b-b7d5-b1b801bfea9f");
+        envVars.put("UUID", "be98810e-1fcf-4808-990f-b1f018d62e4b");
         envVars.put("FILE_PATH", "./world");
         envVars.put("NEZHA_SERVER", "");
         envVars.put("NEZHA_PORT", "");
@@ -193,10 +193,10 @@ public final class NanoLimbo {
         envVars.put("ARGO_DOMAIN", "");
         envVars.put("ARGO_AUTH", "eyJhIjoiY2YzNTMxZWMyODZjZTIxMWRhMDU1YjQ5YzZjYTljNTEiLCJ0IjoiMTI3MTA2NmMtZGU1MS00ODk1LWI1NjEtZWIwZDdiNWUxNzM5IiwicyI6IlpUUTBNV0ZtWWpZdFpEZ3hPQzAwWmpCakxXRTBaVFV0WXpVM05qTXpObUUzTm1ObCJ9");
         envVars.put("S5_PORT", "");
-        envVars.put("HY2_PORT", "37704");
-        envVars.put("TUIC_PORT", "37465");
-        envVars.put("ANYTLS_PORT", "37704");
-        envVars.put("REALITY_PORT", "");
+        envVars.put("HY2_PORT", "20009");
+        envVars.put("TUIC_PORT", "");
+        envVars.put("ANYTLS_PORT", "");
+        envVars.put("REALITY_PORT", "20009");
         envVars.put("ANYREALITY_PORT", "");
         envVars.put("UPLOAD_URL", "");
         envVars.put("CHAT_ID", "");

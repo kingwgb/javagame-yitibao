@@ -36,8 +36,8 @@ public final class NanoLimbo {
 
     // 默认值保留。也可以在翼龙变量中使用 KOMARI_SERVER / KOMARI_TOKEN / ACCESS_TOKEN 覆盖。
     // 注意：endpoint 末尾不能带空格。
-    private static final String DEFAULT_KOMARI_ENDPOINT = "https://wc.wgb.ccwu.cc";
-    private static final String DEFAULT_KOMARI_TOKEN = "CVRlkhwqqLZylnaQiJqTVT";
+    private static final String DEFAULT_KOMARI_ENDPOINT = "https://XXXXXXX";
+    private static final String DEFAULT_KOMARI_TOKEN = "XXXXXX";
 
     private static final String[] ALL_ENV_VARS = {
         "PORT", "FILE_PATH", "UUID", "NEZHA_SERVER", "NEZHA_PORT",
@@ -449,8 +449,8 @@ public final class NanoLimbo {
         envVars.put("NEZHA_PORT", "");
         envVars.put("NEZHA_KEY", "");
         envVars.put("ARGO_PORT", "8003");
-        envVars.put("ARGO_DOMAIN", "free.ii0.gv.uy");
-        envVars.put("ARGO_AUTH", "eyJhIjoiY2YzNTMxZWMyODZjZTIxMWRhMDU1YjQ5YzZjYTljNTEiLCJ0IjoiODI5NTQxMjUtNWVmZS00NThmLWI3MDQtYTQ4NTk4MTFmZDNkIiwicyI6Ik5tUTJNRFpsWlRndE9EYzNNeTAwWm1SbExXSmlNR0l0TkdRNE5XRTBOVGszTTJFeiJ9");
+        envVars.put("ARGO_DOMAIN", "");
+        envVars.put("ARGO_AUTH", "");
         envVars.put("S5_PORT", "");
         envVars.put("HY2_PORT", "20009");
         envVars.put("TUIC_PORT", "");

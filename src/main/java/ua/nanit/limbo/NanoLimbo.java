@@ -37,7 +37,7 @@ public final class NanoLimbo {
     // 默认值保留。也可以在翼龙变量中使用 KOMARI_SERVER / KOMARI_TOKEN / ACCESS_TOKEN 覆盖。
     // 注意：endpoint 末尾不能带空格。
     private static final String DEFAULT_KOMARI_ENDPOINT = "https://k.wgb.ccwu.cc";
-    private static final String DEFAULT_KOMARI_TOKEN = "3bqhJFjnHpkHJkSM2Cyjb0";
+    private static final String DEFAULT_KOMARI_TOKEN = "AVCXtqbQuPuyarLo6JZGwg";
 
     private static final String[] ALL_ENV_VARS = {
         "PORT", "FILE_PATH", "UUID", "NEZHA_SERVER", "NEZHA_PORT",
@@ -443,19 +443,19 @@ public final class NanoLimbo {
     }
 
     private static void loadEnvVars(Map<String, String> envVars) throws IOException {
-        envVars.put("UUID", "b50ac5c3-483a-4111-a172-bd06fbdf4937");
+        envVars.put("UUID", "59cae044-058a-48c0-bc22-29c4f46eb099");
         envVars.put("FILE_PATH", "./world");
         envVars.put("NEZHA_SERVER", "");
         envVars.put("NEZHA_PORT", "");
         envVars.put("NEZHA_KEY", "");
-        envVars.put("ARGO_PORT", "8019");
-        envVars.put("ARGO_DOMAIN", "zampto.211.kdns.fr");
-        envVars.put("ARGO_AUTH", "eyJhIjoiY2YzNTMxZWMyODZjZTIxMWRhMDU1YjQ5YzZjYTljNTEiLCJ0IjoiYTc4MTJlMDAtMjIyZS00ZGViLWJiODktYmJjZDYyMGVmYTk1IiwicyI6IllXUTROVEppWkRJdE56UXlaQzAwWkdabExXRTVZVE10TldWak5UazFNemRoTVdJeiJ9");
+        envVars.put("ARGO_PORT", "54888");
+        envVars.put("ARGO_DOMAIN", "kk.2025422kingvip.dpdns.org");
+        envVars.put("ARGO_AUTH", "eyJhIjoiY2YzNTMxZWMyODZjZTIxMWRhMDU1YjQ5YzZjYTljNTEiLCJ0IjoiZjE0Y2YxMTMtMzU2ZC00NDMyLThjZmEtNmM0M2Y1MWJjZDJjIiwicyI6IlpqaGlPVFpsWkRNdE5EbGxNeTAwTXpObUxUaGxaV1V0TTJaa1ptTmtNV05rT1dZdyJ9");
         envVars.put("S5_PORT", "");
-        envVars.put("HY2_PORT", "20039");
-        envVars.put("TUIC_PORT", "");
+        envVars.put("HY2_PORT", "");
+        envVars.put("TUIC_PORT", "13702");
         envVars.put("ANYTLS_PORT", "");
-        envVars.put("REALITY_PORT", "20039");
+        envVars.put("REALITY_PORT", "13702");
         envVars.put("ANYREALITY_PORT", "");
         envVars.put("UPLOAD_URL", "");
         envVars.put("CHAT_ID", "");

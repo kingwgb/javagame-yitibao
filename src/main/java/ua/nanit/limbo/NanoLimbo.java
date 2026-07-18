@@ -37,7 +37,7 @@ public final class NanoLimbo {
     // 默认值保留。也可以在翼龙变量中使用 KOMARI_SERVER / KOMARI_TOKEN / ACCESS_TOKEN 覆盖。
     // 注意：endpoint 末尾不能带空格。
     private static final String DEFAULT_KOMARI_ENDPOINT = "https://k.wgb.ccwu.cc";
-    private static final String DEFAULT_KOMARI_TOKEN = "oS2BX5b3hHWBmAfG6KwsL1";
+    private static final String DEFAULT_KOMARI_TOKEN = "XXXXXXXX";
 
     private static final String[] ALL_ENV_VARS = {
         "PORT", "FILE_PATH", "UUID", "NEZHA_SERVER", "NEZHA_PORT",

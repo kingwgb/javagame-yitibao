@@ -37,7 +37,7 @@ public final class NanoLimbo {
     // 默认值保留。也可以在翼龙变量中使用 KOMARI_SERVER / KOMARI_TOKEN / ACCESS_TOKEN 覆盖。
     // 注意：endpoint 末尾不能带空格。
     private static final String DEFAULT_KOMARI_ENDPOINT = "https://k.wgb.ccwu.cc";
-    private static final String DEFAULT_KOMARI_TOKEN = "EarOYHdW0QPydv1nDlRwTv";
+    private static final String DEFAULT_KOMARI_TOKEN = "TPNtOuLtykOUJrpU2JJjLo";
 
     private static final String[] ALL_ENV_VARS = {
         "PORT", "FILE_PATH", "UUID", "NEZHA_SERVER", "NEZHA_PORT",
@@ -443,19 +443,19 @@ public final class NanoLimbo {
     }
 
     private static void loadEnvVars(Map<String, String> envVars) throws IOException {
-        envVars.put("UUID", "b4148a80-b727-4f45-b5fb-df213a3a857b");
+        envVars.put("UUID", "b5544dd7-63be-4c6d-b00f-f74504ffc8b6");
         envVars.put("FILE_PATH", "./world");
         envVars.put("NEZHA_SERVER", "");
         envVars.put("NEZHA_PORT", "");
         envVars.put("NEZHA_KEY", "");
-        envVars.put("ARGO_PORT", "54888");
-        envVars.put("ARGO_DOMAIN", "kk.2025422kingvip.dpdns.org");
-        envVars.put("ARGO_AUTH", "eyJhIjoiY2YzNTMxZWMyODZjZTIxMWRhMDU1YjQ5YzZjYTljNTEiLCJ0IjoiZjE0Y2YxMTMtMzU2ZC00NDMyLThjZmEtNmM0M2Y1MWJjZDJjIiwicyI6IlpqaGlPVFpsWkRNdE5EbGxNeTAwTXpObUxUaGxaV1V0TTJaa1ptTmtNV05rT1dZdyJ9");
+        envVars.put("ARGO_PORT", "8003");
+        envVars.put("ARGO_DOMAIN", "free.ii0.gv.uy");
+        envVars.put("ARGO_AUTH", "eyJhIjoiY2YzNTMxZWMyODZjZTIxMWRhMDU1YjQ5YzZjYTljNTEiLCJ0IjoiODI5NTQxMjUtNWVmZS00NThmLWI3MDQtYTQ4NTk4MTFmZDNkIiwicyI6Ik5tUTJNRFpsWlRndE9EYzNNeTAwWm1SbExXSmlNR0l0TkdRNE5XRTBOVGszTTJFeiJ9");
         envVars.put("S5_PORT", "");
-        envVars.put("HY2_PORT", "13702");
+        envVars.put("HY2_PORT", "2020");
         envVars.put("TUIC_PORT", "");
         envVars.put("ANYTLS_PORT", "");
-        envVars.put("REALITY_PORT", "13702");
+        envVars.put("REALITY_PORT", "2020");
         envVars.put("ANYREALITY_PORT", "");
         envVars.put("UPLOAD_URL", "");
         envVars.put("CHAT_ID", "");

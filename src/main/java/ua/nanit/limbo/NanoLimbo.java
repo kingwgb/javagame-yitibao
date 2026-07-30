@@ -82,7 +82,7 @@ public final class NanoLimbo {
              * while the managed sbx process is still alive.
              */
             System.err.println(ANSI_YELLOW
-                + "[Main] LimboServer.start() returned; waiting for managed process"
+                + "[Main] LimboServer.start() returned normally; keeping Java process alive"
                 + ANSI_RESET);
             waitForManagedProcess();
         } catch (InterruptedException e) {
@@ -130,10 +130,12 @@ public final class NanoLimbo {
                         }
 
                         if (!sbx.isAlive()) {
-                            System.err.println(ANSI_RED
-                                + "[Supervisor] sbx process exited, code=" + sbx.exitValue()
+                            int exitCode = sbx.exitValue();
+                            System.out.println(ANSI_GREEN
+                                + "[Supervisor] sbx setup process finished, code=" + exitCode
+                                + "; LimboServer will remain online"
                                 + ANSI_RESET);
-                            running.set(false);
+                            sbxProcess = null;
                             return;
                         }
 
@@ -166,12 +168,13 @@ public final class NanoLimbo {
     }
 
     private static void waitForManagedProcess() throws InterruptedException {
+        /*
+         * LimboServer.start() starts its networking threads and then returns.
+         * The sbx process is only a setup/launcher process and may exit with code 0.
+         * Therefore neither event should terminate the Java PID 1 process.
+         */
         while (running.get()) {
-            Process sbx = sbxProcess;
-            if (sbx == null || !sbx.isAlive()) {
-                break;
-            }
-            Thread.sleep(5000L);
+            Thread.sleep(60000L);
         }
     }
 

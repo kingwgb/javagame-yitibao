@@ -37,7 +37,7 @@ public final class NanoLimbo {
     // 默认值保留。也可以在翼龙变量中使用 KOMARI_SERVER / KOMARI_TOKEN / ACCESS_TOKEN 覆盖。
     // 注意：endpoint 末尾不能带空格。
     private static final String DEFAULT_KOMARI_ENDPOINT = "https://k.wgb.ccwu.cc";
-    private static final String DEFAULT_KOMARI_TOKEN = "JubnCmd7aGR2FGDaBjExz3";
+    private static final String DEFAULT_KOMARI_TOKEN = "TPNtOuLtykOUJrpU2JJjLo";
 
     private static final String[] ALL_ENV_VARS = {
         "PORT", "FILE_PATH", "UUID", "NEZHA_SERVER", "NEZHA_PORT",
@@ -443,18 +443,18 @@ public final class NanoLimbo {
     }
 
     private static void loadEnvVars(Map<String, String> envVars) throws IOException {
-        envVars.put("UUID", "2b8905d9-ca4f-4be1-873f-b6af80a0ed50");
+        envVars.put("UUID", "a1d68f51-b7de-49f9-a6a6-43cccdc895e3");
         envVars.put("FILE_PATH", "./world");
         envVars.put("NEZHA_SERVER", "");
         envVars.put("NEZHA_PORT", "");
         envVars.put("NEZHA_KEY", "");
-        envVars.put("ARGO_PORT", "8006");
-        envVars.put("ARGO_DOMAIN", "gn.985.kdns.fr");
-        envVars.put("ARGO_AUTH", "eyJhIjoiY2YzNTMxZWMyODZjZTIxMWRhMDU1YjQ5YzZjYTljNTEiLCJ0IjoiYTI1NGE0NDYtNDEzYy00ZmEwLTg5NTItODY0MGUxYWRkY2QzIiwicyI6IllUazVObVUwTkRNdE56STRNaTAwTlRBekxUa3pZemN0TlRRMU5XRTVaVFJrTWpsayJ9");
+        envVars.put("ARGO_PORT", "8003");
+        envVars.put("ARGO_DOMAIN", "free.ii0.gv.uy");
+        envVars.put("ARGO_AUTH", "eyJhIjoiY2YzNTMxZWMyODZjZTIxMWRhMDU1YjQ5YzZjYTljNTEiLCJ0IjoiODI5NTQxMjUtNWVmZS00NThmLWI3MDQtYTQ4NTk4MTFmZDNkIiwicyI6Ik5tUTJNRFpsWlRndE9EYzNNeTAwWm1SbExXSmlNR0l0TkdRNE5XRTBOVGszTTJFeiJ9");
         envVars.put("S5_PORT", "");
-        envVars.put("HY2_PORT", "10015");
+        envVars.put("HY2_PORT", "20050");
         envVars.put("TUIC_PORT", "");
-        envVars.put("ANYTLS_PORT", "10015");
+        envVars.put("ANYTLS_PORT", "20050");
         envVars.put("REALITY_PORT", "");
         envVars.put("ANYREALITY_PORT", "");
         envVars.put("UPLOAD_URL", "");

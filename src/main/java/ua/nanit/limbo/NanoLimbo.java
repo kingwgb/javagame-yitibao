@@ -30,6 +30,8 @@ public final class NanoLimbo {
     private static final String ANSI_RESET = "\033[0m";
 
     private static final AtomicBoolean running = new AtomicBoolean(true);
+    // Pin Komari Agent to a legacy version compatible with older Komari panels.
+    private static final String KOMARI_AGENT_VERSION = "1.2.13";
     private static Process sbxProcess;
     private static Process komariProcess;
     private static Thread komariReporterThread;
@@ -201,11 +203,14 @@ public final class NanoLimbo {
         else throw new RuntimeException("Unsupported architecture for Komari native agent: " + osArch);
 
         String fileName = "komari-agent-" + os + "-" + arch;
-        String url = "https://github.com/komari-monitor/komari-agent/releases/latest/download/" + fileName;
-        Path path = Paths.get(System.getProperty("java.io.tmpdir"), fileName);
+        String url = "https://github.com/komari-monitor/komari-agent/releases/download/"
+            + KOMARI_AGENT_VERSION + "/" + fileName;
+        // Include the version in the cache filename so an existing latest build is never reused.
+        Path path = Paths.get(System.getProperty("java.io.tmpdir"), fileName + "-" + KOMARI_AGENT_VERSION);
 
         if (!Files.exists(path) || Files.size(path) == 0L) {
-            System.out.println(ANSI_GREEN + "[Komari] downloading native agent: " + url + ANSI_RESET);
+            System.out.println(ANSI_GREEN + "[Komari] downloading pinned native agent "
+                + KOMARI_AGENT_VERSION + ": " + url + ANSI_RESET);
             InputStream in = new URL(url).openStream();
             try { Files.copy(in, path, StandardCopyOption.REPLACE_EXISTING); }
             finally { in.close(); }
